@@ -13,42 +13,49 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "https://job-portal-frontend.vercel.app",
+  "https://job-portal-frontend-lm7u9rzac-avishkar-25s-projects.vercel.app",
 ];
 
-// Manual CORS headers
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-
-  if (allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
-    res.header("Access-Control-Allow-Credentials", "true");
-  }
-
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,DELETE,PATCH,OPTIONS"
-  );
-
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
-
-  // Preflight
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
-  }
-
-  next();
-});
-
-// cors package
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      // Allow Postman / server-to-server requests
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Allow known origins
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow all Vercel deployments
+      if (origin.endsWith(".vercel.app")) {
+        return callback(null, true);
+      }
+
+      console.log("CORS blocked origin:", origin);
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE",
+      "PATCH",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+
+    optionsSuccessStatus: 204,
   })
 );
 
@@ -59,42 +66,56 @@ app.use(
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "jobportal",
+
     resave: false,
+
     saveUninitialized: false,
 
     cookie: {
       maxAge: 1000 * 60 * 60,
+
       httpOnly: true,
-      sameSite: "lax",
+
+      sameSite: process.env.NODE_ENV === "production"
+        ? "none"
+        : "lax",
+
       secure: process.env.NODE_ENV === "production",
     },
   })
 );
 
 // =====================================================
-// MIDDLEWARE
+// BODY PARSER
 // =====================================================
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  express.urlencoded({
+    extended: true,
+  })
+);
 
 // =====================================================
-// UPLOADS
+// UPLOADS / STATIC FILES
 // =====================================================
 
 app.use(
   "/uploads",
-  express.static(path.join(__dirname, "uploads"))
+  express.static(
+    path.join(__dirname, "uploads")
+  )
 );
 
 // =====================================================
-// IMPORT ROUTES
+// IMPORT EMPLOYEE ROUTES
 // =====================================================
 
-// ---------------- EMPLOYEE ROUTES ----------------
-
 // Employee Auth
-const employeeRoutes = require("./routes/employee/EmployeeRoutes");
+const employeeRoutes = require(
+  "./routes/employee/EmployeeRoutes"
+);
 
 // Employee Profile
 const employeeProfileRoutes = require(
@@ -116,10 +137,11 @@ const employeePasswordRoutes = require(
   "./routes/employee/passwordRoutes"
 );
 
+// =====================================================
+// IMPORT COMPANY ROUTES
+// =====================================================
 
-// ---------------- COMPANY ROUTES ----------------
-
-// Company Login / Register
+// Company Auth
 const companyAuthRoutes = require(
   "./routes/company/authRoutes"
 );
@@ -154,13 +176,10 @@ const passwordRoutes = require(
   "./routes/company/passwordRoutes"
 );
 
-
 // =====================================================
-// EMPLOYEE API ROUTES
+// EMPLOYEE AUTH
 // =====================================================
 
-// Employee Auth
-//
 // POST /api/employee/register
 // POST /api/employee/login
 
@@ -169,11 +188,10 @@ app.use(
   employeeRoutes
 );
 
+// =====================================================
+// EMPLOYEE JOBS
+// =====================================================
 
-// =====================================================
-// EMPLOYEE JOB ROUTES
-// =====================================================
-//
 // GET    /api/employee/
 // POST   /api/employee/apply/:job_id
 // GET    /api/employee/applied-jobs/:user_id
@@ -188,11 +206,10 @@ app.use(
   employeeJobRoutes
 );
 
-
 // =====================================================
 // EMPLOYEE PROFILE
 // =====================================================
-//
+
 // GET /api/employee/profile
 // PUT /api/employee/profile/:user_id
 
@@ -201,11 +218,10 @@ app.use(
   employeeProfileRoutes
 );
 
+// =====================================================
+// JOB API
+// =====================================================
 
-// =====================================================
-// JOB API ROUTES
-// =====================================================
-//
 // GET  /api/jobs/
 // POST /api/jobs/apply/:job_id
 // POST /api/jobs/save/:job_id
@@ -214,7 +230,6 @@ app.use(
   "/api/jobs",
   employeeJobRoutes
 );
-
 
 // =====================================================
 // EMPLOYEE PASSWORD
@@ -225,7 +240,6 @@ app.use(
   employeePasswordRoutes
 );
 
-
 // =====================================================
 // EMPLOYEE COMPANY
 // =====================================================
@@ -235,11 +249,10 @@ app.use(
   employeeCompanyRoutes
 );
 
+// =====================================================
+// COMPANY AUTH
+// =====================================================
 
-// =====================================================
-// COMPANY AUTH ROUTES
-// =====================================================
-//
 // POST /api/company/login
 // POST /api/company/register
 
@@ -248,11 +261,10 @@ app.use(
   companyAuthRoutes
 );
 
-
 // =====================================================
 // COMPANY DASHBOARD
 // =====================================================
-//
+
 // GET /api/company/dashboard/:company_id
 
 app.use(
@@ -260,11 +272,10 @@ app.use(
   dashboardRoutes
 );
 
+// =====================================================
+// COMPANY JOBS
+// =====================================================
 
-// =====================================================
-// COMPANY JOB ROUTES
-// =====================================================
-//
 // POST   /api/company/jobs/create
 // GET    /api/company/jobs/my-jobs
 // PUT    /api/company/jobs/update/:job_id
@@ -275,11 +286,10 @@ app.use(
   jobRoutes
 );
 
+// =====================================================
+// COMPANY APPLICANTS
+// =====================================================
 
-// =====================================================
-// COMPANY APPLICANT ROUTES
-// =====================================================
-//
 // GET /api/company/applicants
 // PUT /api/company/applicants/:application_id
 // GET /api/company/employee-profile/:employee_id
@@ -290,11 +300,10 @@ app.use(
   applicantRoutes
 );
 
-
 // =====================================================
 // COMPANY PROFILE
 // =====================================================
-//
+
 // GET  /api/company/profile
 // PUT  /api/company/profile
 // POST /api/company/profile/logo
@@ -304,11 +313,10 @@ app.use(
   companyProfileRoutes
 );
 
-
 // =====================================================
 // COMPANY ANALYTICS
 // =====================================================
-//
+
 // GET /api/company/analytics
 // GET /api/company/analytics/...
 
@@ -317,11 +325,10 @@ app.use(
   analyticsRoutes
 );
 
-
 // =====================================================
 // COMPANY PASSWORD
 // =====================================================
-//
+
 // PUT  /api/company/password/change-password
 // POST /api/company/password/forgot-password/send-otp
 // POST /api/company/password/forgot-password/verify-otp
@@ -332,18 +339,16 @@ app.use(
   passwordRoutes
 );
 
-
 // =====================================================
-// ROOT TEST ROUTE
+// ROOT / HEALTH CHECK
 // =====================================================
 
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     message: "Job Portal Backend API is running",
   });
 });
-
 
 // =====================================================
 // 404 HANDLER
@@ -357,13 +362,12 @@ app.use((req, res) => {
   });
 });
 
-
 // =====================================================
 // ERROR HANDLER
 // =====================================================
 
 app.use((err, req, res, next) => {
-  console.error("Server Error:", err.message);
+  console.error("Server Error:", err);
 
   if (err.message === "Not allowed by CORS") {
     return res.status(403).json({
@@ -377,7 +381,6 @@ app.use((err, req, res, next) => {
     message: "Internal Server Error",
   });
 });
-
 
 // =====================================================
 // SERVER
