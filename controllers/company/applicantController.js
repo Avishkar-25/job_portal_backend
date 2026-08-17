@@ -478,17 +478,21 @@ exports.updateApplicantStatus = async (req, res) => {
         ];
 
         if (!status) {
+
             return res.status(400).json({
                 success: false,
                 message: "Status is required"
             });
+
         }
 
         if (!allowedStatuses.includes(status)) {
+
             return res.status(400).json({
                 success: false,
                 message: "Invalid status"
             });
+
         }
 
         // =====================================================
@@ -594,7 +598,7 @@ exports.updateApplicantStatus = async (req, res) => {
         );
 
         // =====================================================
-        // SEND RESPONSE IMMEDIATELY
+        // RESPONSE
         // =====================================================
 
         res.status(200).json({
@@ -612,7 +616,7 @@ exports.updateApplicantStatus = async (req, res) => {
         });
 
         // =====================================================
-        // SEND EMAIL IN BACKGROUND
+        // EMAIL
         // =====================================================
 
         if (!employee.email) {
@@ -625,7 +629,6 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
-        // Let response complete first
         setImmediate(async () => {
 
             try {
@@ -634,13 +637,16 @@ exports.updateApplicantStatus = async (req, res) => {
                     `📧 Sending status email to: ${employee.email}`
                 );
 
-                console.log(
-                    `📧 SMTP User: ${process.env.EMAIL_USER}`
-                );
-
                 const mailOptions = {
 
-                    from: `"Job Portal" <${process.env.EMAIL_USER}>`,
+                    from: {
+                        name:
+                            process.env.BREVO_FROM_NAME ||
+                            "Job Portal",
+
+                        address:
+                            process.env.BREVO_FROM_EMAIL
+                    },
 
                     to: employee.email.trim(),
 
@@ -661,7 +667,7 @@ exports.updateApplicantStatus = async (req, res) => {
                     await transporter.sendMail(mailOptions);
 
                 console.log(
-                    "✅ Status email sent successfully"
+                    "✅ Brevo status email sent successfully"
                 );
 
                 console.log(
@@ -677,7 +683,7 @@ exports.updateApplicantStatus = async (req, res) => {
             } catch (mailError) {
 
                 console.error(
-                    "❌ STATUS EMAIL FAILED"
+                    "❌ BREVO STATUS EMAIL FAILED"
                 );
 
                 console.error(
@@ -711,7 +717,6 @@ exports.updateApplicantStatus = async (req, res) => {
             error
         );
 
-        // जर response आधीच send झाला असेल
         if (res.headersSent) {
             return;
         }
@@ -729,7 +734,6 @@ exports.updateApplicantStatus = async (req, res) => {
     }
 
 };
-
 
 // ==========================================
 // GET EMPLOYEE PROFILE FOR COMPANY

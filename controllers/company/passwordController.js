@@ -1,7 +1,6 @@
 const db = require("../../config/db");
 const bcrypt = require("bcryptjs");
-const transporter = require("../../config/mail");
-
+const sendEmail = require("../../config/mailer");
 // =====================================================
 // CHANGE PASSWORD - SETTINGS
 // =====================================================
@@ -218,75 +217,85 @@ exports.sendForgotPasswordOtp = async (req, res) => {
     // SEND OTP EMAIL
     // =====================================================
 
-    await transporter.sendMail({
 
-      // IMPORTANT:
-      // Use same variable as nodemailer.js
+await sendEmail({
 
-      from: `"Job Portal" <${process.env.EMAIL_USER}>`,
+    to: user.email,
 
-      to: user.email,
+    toName: user.name || "Company",
 
-      subject: "Job Portal - Password Reset OTP",
+    subject: "Job Portal - Password Reset OTP",
 
-      html: `
+    html: `
         <div style="
-          font-family: Arial, sans-serif;
-          max-width: 600px;
-          margin: auto;
-          padding: 30px;
-          border: 1px solid #ddd;
-          border-radius: 12px;
-          background: #ffffff;
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: auto;
+            padding: 30px;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            background: #ffffff;
         ">
 
-          <h2 style="
-            color:#0d6efd;
-            margin-bottom:20px;
-          ">
-            Password Reset
-          </h2>
+            <h2 style="color:#0d6efd;">
+                Password Reset
+            </h2>
 
-          <p>
-            Hello <strong>${user.name || "Company"}</strong>,
-          </p>
+            <p>
+                Hello <strong>${user.name || "Company"}</strong>,
+            </p>
 
-          <p>
-            We received a request to reset your
-            Job Portal company account password.
-          </p>
+            <p>
+                We received a request to reset your
+                Job Portal company account password.
+            </p>
 
-          <p>
-            Your OTP is:
-          </p>
+            <p>
+                Your OTP is:
+            </p>
 
-          <h1 style="
-            letter-spacing: 10px;
-            color: #0d6efd;
-            text-align:center;
-          ">
-            ${otp}
-          </h1>
+            <h1 style="
+                letter-spacing: 10px;
+                color: #0d6efd;
+                text-align: center;
+            ">
+                ${otp}
+            </h1>
 
-          <p>
-            This OTP is valid for
-            <strong>10 minutes</strong>.
-          </p>
+            <p>
+                This OTP is valid for
+                <strong>10 minutes</strong>.
+            </p>
 
-          <p>
-            If you did not request this password reset,
-            please ignore this email.
-          </p>
+            <p>
+                If you did not request this password reset,
+                please ignore this email.
+            </p>
 
-          <hr>
+            <hr>
 
-          <small>
-            Job Portal Security Team
-          </small>
+            <small>
+                Job Portal Security Team
+            </small>
 
         </div>
-      `
-    });
+    `,
+
+    text: `
+Password Reset
+
+Hello ${user.name || "Company"},
+
+Your Job Portal password reset OTP is: ${otp}
+
+This OTP is valid for 10 minutes.
+
+If you did not request this password reset,
+please ignore this email.
+`
+});
+
+
 
 
     console.log(
@@ -333,121 +342,138 @@ exports.sendForgotPasswordOtp = async (req, res) => {
 
 exports.verifyForgotPasswordOtp = async (req, res) => {
 
-  try {
+    try {
 
-    const { email, otp } = req.body;
+        const { email, otp } = req.body;
 
+        // =====================================================
+        // VALIDATION
+        // =====================================================
 
-    if (!email || !otp) {
+        if (!email || !otp) {
 
-      return res.status(400).json({
+            return res.status(400).json({
+                success: false,
+                message: "Email and OTP are required"
+            });
 
-        success: false,
+        }
 
-        message: "Email and OTP are required"
+        // =====================================================
+        // FIND OTP
+        // =====================================================
 
-      });
+        const [rows] = await db.promise().query(
+            `
+            SELECT
+                id,
+                user_id,
+                email,
+                otp,
+                expires_at,
+                is_verified
+            FROM password_reset_otps
+            WHERE email = ?
+            AND otp = ?
+            AND is_verified = 0
+            ORDER BY id DESC
+            LIMIT 1
+            `,
+            [
+                email.trim().toLowerCase(),
+                otp.toString().trim()
+            ]
+        );
+
+        // =====================================================
+        // OTP NOT FOUND
+        // =====================================================
+
+        if (rows.length === 0) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Invalid OTP"
+            });
+
+        }
+
+        const resetData = rows[0];
+
+        // =====================================================
+        // CHECK OTP EXPIRY
+        // =====================================================
+
+        const currentTime = new Date();
+        const expiryTime = new Date(resetData.expires_at);
+
+        if (expiryTime <= currentTime) {
+
+            // Optional: delete expired OTP
+            await db.promise().query(
+                `
+                DELETE FROM password_reset_otps
+                WHERE id = ?
+                `,
+                [resetData.id]
+            );
+
+            return res.status(400).json({
+                success: false,
+                message: "OTP has expired. Please request a new OTP"
+            });
+
+        }
+
+        // =====================================================
+        // MARK OTP VERIFIED
+        // =====================================================
+
+        await db.promise().query(
+            `
+            UPDATE password_reset_otps
+            SET is_verified = 1
+            WHERE id = ?
+            `,
+            [resetData.id]
+        );
+
+        console.log(
+            `✅ OTP verified for ${resetData.email}`
+        );
+
+        // =====================================================
+        // SUCCESS RESPONSE
+        // =====================================================
+
+        return res.status(200).json({
+
+            success: true,
+
+            message: "OTP verified successfully",
+
+            user_id: resetData.user_id
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "❌ Verify OTP Error:",
+            error
+        );
+
+        return res.status(500).json({
+
+            success: false,
+
+            message: "Server error",
+
+            error: error.message
+
+        });
 
     }
-
-
-    const [rows] = await db.promise().query(
-      `
-      SELECT *
-      FROM password_reset_otps
-      WHERE email = ?
-      AND otp = ?
-      AND is_verified = 0
-      ORDER BY id DESC
-      LIMIT 1
-      `,
-      [
-        email,
-        otp
-      ]
-    );
-
-
-    if (rows.length === 0) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Invalid OTP"
-
-      });
-
-    }
-
-
-    const resetData = rows[0];
-
-
-    // =====================================================
-    // CHECK EXPIRY
-    // =====================================================
-
-    if (
-      new Date(resetData.expires_at) < new Date()
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-          "OTP has expired. Please request a new OTP"
-
-      });
-
-    }
-
-
-    // =====================================================
-    // MARK VERIFIED
-    // =====================================================
-
-    await db.promise().query(
-      `
-      UPDATE password_reset_otps
-      SET is_verified = 1
-      WHERE id = ?
-      `,
-      [resetData.id]
-    );
-
-
-    return res.status(200).json({
-
-      success: true,
-
-      message: "OTP verified successfully",
-
-      user_id: resetData.user_id
-
-    });
-
-
-  } catch (error) {
-
-    console.error(
-      "❌ Verify OTP Error:",
-      error
-    );
-
-
-    return res.status(500).json({
-
-      success: false,
-
-      message: "Server error",
-
-      error: error.message
-
-    });
-
-  }
 
 };
 
