@@ -81,31 +81,361 @@ exports.getApplicants = async (req, res) => {
 
 };
 
-// ======================================
-// UPDATE APPLICANT STATUS
-// ======================================
-exports.updateApplicantStatus = async (req, res) => {
+
+// ============================================================
+// SCHEDULE INTERVIEW
+// ============================================================
+
+exports.scheduleInterview = async (req, res) => {
 
     try {
 
         const user_id = req.user.user_id;
         const { application_id } = req.params;
+
+        const {
+            date,
+            time,
+            location
+        } = req.body;
+
+
+        // =====================================================
+        // VALIDATION
+        // =====================================================
+
+        if (!date || !time || !location) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Interview date, time and location are required"
+            });
+
+        }
+
+
+        // =====================================================
+        // GET COMPANY
+        // =====================================================
+
+        const [companyRows] = await db.promise().query(
+            `
+            SELECT
+                company_id,
+                company_name
+            FROM companies
+            WHERE user_id = ?
+            LIMIT 1
+            `,
+            [user_id]
+        );
+
+
+        if (companyRows.length === 0) {
+
+            return res.status(404).json({
+                success: false,
+                message: "Company not found"
+            });
+
+        }
+
+
+        const company_id = companyRows[0].company_id;
+        const company_name = companyRows[0].company_name;
+
+
+        // =====================================================
+        // GET APPLICATION + EMPLOYEE
+        // =====================================================
+
+        const [rows] = await db.promise().query(
+            `
+            SELECT
+                aj.application_id,
+                aj.employee_id,
+                aj.job_id,
+                aj.company_id,
+
+                e.full_name AS candidate_name,
+                e.email AS candidate_email,
+
+                j.job_title
+
+            FROM applied_jobs aj
+
+            INNER JOIN employee e
+                ON aj.employee_id = e.employee_id
+
+            INNER JOIN jobs j
+                ON aj.job_id = j.job_id
+
+            WHERE aj.application_id = ?
+            AND aj.company_id = ?
+
+            LIMIT 1
+            `,
+            [
+                application_id,
+                company_id
+            ]
+        );
+
+
+        if (rows.length === 0) {
+
+            return res.status(404).json({
+                success: false,
+                message: "Application not found"
+            });
+
+        }
+
+
+        const applicant = rows[0];
+
+
+        // =====================================================
+        // SAVE INTERVIEW DETAILS
+        // =====================================================
+
+        const [updateResult] = await db.promise().query(
+            `
+            UPDATE applied_jobs
+            SET
+                status = 'Interview',
+                interview_date = ?,
+                interview_time = ?,
+                interview_location = ?
+            WHERE application_id = ?
+            AND company_id = ?
+            `,
+            [
+                date,
+                time,
+                location,
+                application_id,
+                company_id
+            ]
+        );
+
+
+        if (updateResult.affectedRows === 0) {
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to save interview details"
+            });
+
+        }
+
+
+        console.log(
+            "Interview saved:",
+            application_id,
+            date,
+            time,
+            location
+        );
+
+
+        // =====================================================
+        // IMPORTANT
+        // RESPONSE IMMEDIATELY
+        // =====================================================
+
+        res.status(200).json({
+
+            success: true,
+
+            message: "Interview scheduled successfully",
+
+            emailStatus: "Email is being sent",
+
+            interview: {
+                application_id,
+                date,
+                time,
+                location
+            }
+
+        });
+
+
+        // =====================================================
+        // SEND EMAIL IN BACKGROUND
+        // =====================================================
+
+        const mailOptions = {
+
+            from: `"Job Portal" <${process.env.EMAIL_USER}>`,
+
+            to: applicant.candidate_email,
+
+            subject:
+                `Interview Scheduled - ${applicant.job_title}`,
+
+            html: `
+                <div style="
+                    font-family: Arial, sans-serif;
+                    max-width: 600px;
+                    margin: auto;
+                    padding: 25px;
+                    border: 1px solid #ddd;
+                    border-radius: 12px;
+                    background: #ffffff;
+                ">
+
+                    <h2 style="
+                        color:#2563eb;
+                        margin-bottom:20px;
+                    ">
+                        Interview Scheduled
+                    </h2>
+
+                    <p>
+                        Dear
+                        <strong>
+                            ${applicant.candidate_name}
+                        </strong>,
+                    </p>
+
+                    <p>
+                        Your interview has been successfully
+                        scheduled for the position of
+                        <strong>
+                            ${applicant.job_title}
+                        </strong>.
+                    </p>
+
+                    <div style="
+                        background:#eff6ff;
+                        padding:20px;
+                        border-radius:10px;
+                        margin:20px 0;
+                    ">
+
+                        <p>
+                            <strong>Company:</strong>
+                            ${company_name}
+                        </p>
+
+                        <p>
+                            <strong>Job:</strong>
+                            ${applicant.job_title}
+                        </p>
+
+                        <p>
+                            <strong>Date:</strong>
+                            ${date}
+                        </p>
+
+                        <p>
+                            <strong>Time:</strong>
+                            ${time}
+                        </p>
+
+                        <p>
+                            <strong>Location:</strong>
+                            ${location}
+                        </p>
+
+                    </div>
+
+                    <p>
+                        Please be available at the scheduled
+                        date and time.
+                    </p>
+
+                    <p>
+                        Regards,<br/>
+                        <strong>
+                            ${company_name} HR Team
+                        </strong>
+                    </p>
+
+                </div>
+            `
+        };
+
+
+        transporter.sendMail(mailOptions)
+
+            .then(() => {
+
+                console.log(
+                    "Interview email sent:",
+                    applicant.candidate_email
+                );
+
+            })
+
+            .catch((mailError) => {
+
+                console.error(
+                    "Interview email failed:",
+                    mailError.message
+                );
+
+            });
+
+
+    } catch (error) {
+
+        console.error(
+            "Schedule Interview Error:",
+            error
+        );
+
+
+        return res.status(500).json({
+
+            success: false,
+
+            message: "Failed to schedule interview",
+
+            error: error.message
+
+        });
+
+    }
+
+};
+
+
+
+// ============================================================
+// UPDATE APPLICANT STATUS
+// ============================================================
+
+exports.updateApplicantStatus = async (req, res) => {
+
+    try {
+
+        const user_id = req.user.user_id;
+
+        const { application_id } = req.params;
+
         const { status } = req.body;
 
-        // ==========================================
-        // VALIDATE STATUS
-        // ==========================================
+
+        // =====================================================
+        // VALIDATION
+        // =====================================================
 
         if (!status) {
+
             return res.status(400).json({
                 success: false,
                 message: "Status is required"
             });
+
         }
 
-        // ==========================================
+
+        // =====================================================
         // GET COMPANY
-        // ==========================================
+        // =====================================================
 
         const [company] = await db.promise().query(
             `
@@ -117,6 +447,7 @@ exports.updateApplicantStatus = async (req, res) => {
             [user_id]
         );
 
+
         if (company.length === 0) {
 
             return res.status(404).json({
@@ -126,11 +457,13 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
+
         const company_id = company[0].company_id;
 
-        // ==========================================
+
+        // =====================================================
         // CHECK APPLICATION
-        // ==========================================
+        // =====================================================
 
         const [check] = await db.promise().query(
             `
@@ -146,6 +479,7 @@ exports.updateApplicantStatus = async (req, res) => {
             ]
         );
 
+
         if (check.length === 0) {
 
             return res.status(404).json({
@@ -155,9 +489,10 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
-        // ==========================================
+
+        // =====================================================
         // UPDATE STATUS
-        // ==========================================
+        // =====================================================
 
         await db.promise().query(
             `
@@ -173,13 +508,15 @@ exports.updateApplicantStatus = async (req, res) => {
             ]
         );
 
+
         console.log(
             `Application ${application_id} status updated to ${status}`
         );
 
-        // ==========================================
-        // GET EMPLOYEE + COMPANY DETAILS
-        // ==========================================
+
+        // =====================================================
+        // GET EMAIL DATA
+        // =====================================================
 
         const [mailData] = await db.promise().query(
             `
@@ -188,6 +525,7 @@ exports.updateApplicantStatus = async (req, res) => {
                 e.email,
                 j.job_title,
                 c.company_name
+
             FROM applied_jobs aj
 
             JOIN employee e
@@ -210,71 +548,77 @@ exports.updateApplicantStatus = async (req, res) => {
             ]
         );
 
-        // ==========================================
-        // SEND EMAIL
-        // EMAIL FAILURE SHOULD NOT FAIL STATUS UPDATE
-        // ==========================================
 
-        let emailSent = false;
+        // =====================================================
+        // RESPONSE IMMEDIATELY
+        // =====================================================
+
+        res.status(200).json({
+
+            success: true,
+
+            message: "Status Updated Successfully",
+
+            status,
+
+            emailStatus:
+                mailData.length > 0
+                    ? "Email is being sent"
+                    : "Employee email not found"
+
+        });
+
+
+        // =====================================================
+        // SEND EMAIL IN BACKGROUND
+        // =====================================================
 
         if (mailData.length > 0) {
 
             const employee = mailData[0];
 
-            try {
 
-                await transporter.sendMail({
+            transporter.sendMail({
 
-                    from: process.env.MAIL_USER,
+                from:
+                    `"Job Portal" <${process.env.EMAIL_USER}>`,
 
-                    to: employee.email,
+                to:
+                    employee.email,
 
-                    subject: `Application Status - ${status}`,
+                subject:
+                    `Application Status - ${status}`,
 
-                    html: statusMail(
+                html:
+                    statusMail(
                         employee.full_name,
                         employee.company_name,
                         employee.job_title,
                         status
                     )
 
-                });
+            })
 
-                emailSent = true;
+            .then(() => {
 
                 console.log(
                     "Status email sent:",
                     employee.email
                 );
 
-            } catch (mailError) {
+            })
+
+            .catch((mailError) => {
 
                 console.error(
                     "Status email failed:",
                     mailError.message
                 );
 
-                emailSent = false;
-            }
+            });
+
         }
 
-        // ==========================================
-        // SUCCESS RESPONSE
-        // ==========================================
-
-        return res.status(200).json({
-
-            success: true,
-
-            message: emailSent
-                ? "Status Updated Successfully and Email Sent"
-                : "Status Updated Successfully, but Email Failed",
-
-            emailSent,
-
-            status
-
-        });
 
     } catch (error) {
 
@@ -282,6 +626,7 @@ exports.updateApplicantStatus = async (req, res) => {
             "Update Applicant Status Error:",
             error
         );
+
 
         return res.status(500).json({
 
@@ -294,7 +639,10 @@ exports.updateApplicantStatus = async (req, res) => {
         });
 
     }
+
 };
+
+
 // ==========================================
 // GET EMPLOYEE PROFILE FOR COMPANY
 // ==========================================
@@ -443,345 +791,5 @@ exports.getEmployeeProfileForCompany = async (req, res) => {
 };
 
 
-exports.scheduleInterview = async (req, res) => {
-
-    try {
-
-        const user_id = req.user.user_id;
-        const { application_id } = req.params;
-
-        const {
-            date,
-            time,
-            location
-        } = req.body;
-
-
-        // ==========================================
-        // VALIDATION
-        // ==========================================
-
-        if (!date || !time || !location) {
-
-            return res.status(400).json({
-                success: false,
-                message: "Interview date, time and location are required"
-            });
-
-        }
-
-
-        // ==========================================
-        // GET COMPANY
-        // ==========================================
-
-        const [companyRows] = await db.promise().query(
-            `
-            SELECT
-                company_id,
-                company_name
-            FROM companies
-            WHERE user_id = ?
-            LIMIT 1
-            `,
-            [user_id]
-        );
-
-
-        if (companyRows.length === 0) {
-
-            return res.status(404).json({
-                success: false,
-                message: "Company not found"
-            });
-
-        }
-
-
-        const company_id = companyRows[0].company_id;
-        const company_name = companyRows[0].company_name;
-
-
-        // ==========================================
-        // GET APPLICATION
-        // ==========================================
-
-        const [rows] = await db.promise().query(
-            `
-            SELECT
-                aj.application_id,
-                aj.employee_id,
-                aj.job_id,
-                aj.company_id,
-
-                e.full_name AS candidate_name,
-                e.email AS candidate_email,
-
-                j.job_title
-
-            FROM applied_jobs aj
-
-            INNER JOIN employee e
-                ON aj.employee_id = e.employee_id
-
-            INNER JOIN jobs j
-                ON aj.job_id = j.job_id
-
-            WHERE aj.application_id = ?
-            AND aj.company_id = ?
-
-            LIMIT 1
-            `,
-            [
-                application_id,
-                company_id
-            ]
-        );
-
-
-        if (rows.length === 0) {
-
-            return res.status(404).json({
-                success: false,
-                message: "Application not found"
-            });
-
-        }
-
-
-        const applicant = rows[0];
-
-
-        // ==========================================
-        // UPDATE INTERVIEW
-        // ==========================================
-
-        const [updateResult] = await db.promise().query(
-            `
-            UPDATE applied_jobs
-
-            SET
-                status = 'Interview',
-                interview_date = ?,
-                interview_time = ?,
-                interview_location = ?
-
-            WHERE application_id = ?
-            AND company_id = ?
-            `,
-            [
-                date,
-                time,
-                location,
-                application_id,
-                company_id
-            ]
-        );
-
-
-        if (updateResult.affectedRows === 0) {
-
-            return res.status(500).json({
-                success: false,
-                message: "Failed to save interview details"
-            });
-
-        }
-
-
-        console.log(
-            "✅ Interview saved:",
-            application_id,
-            date,
-            time,
-            location
-        );
-
-
-        // ==========================================
-        // SEND EMAIL
-        // ==========================================
-
-        let emailSent = false;
-
-
-        try {
-
-            const mailOptions = {
-
-                from: `"Job Portal" <${process.env.EMAIL_USER}>`,
-
-                to: applicant.candidate_email,
-
-                subject:
-                    `Interview Scheduled - ${applicant.job_title}`,
-
-                html: `
-                
-                <div style="
-                    font-family: Arial, sans-serif;
-                    max-width: 600px;
-                    margin: auto;
-                    padding: 25px;
-                    border: 1px solid #ddd;
-                    border-radius: 12px;
-                    background: #ffffff;
-                ">
-
-                    <h2 style="
-                        color:#2563eb;
-                        margin-bottom:20px;
-                    ">
-                        Interview Scheduled
-                    </h2>
-
-
-                    <p>
-                        Dear
-                        <strong>
-                            ${applicant.candidate_name}
-                        </strong>,
-                    </p>
-
-
-                    <p>
-                        Your interview has been successfully
-                        scheduled for the position of
-                        <strong>
-                            ${applicant.job_title}
-                        </strong>.
-                    </p>
-
-
-                    <div style="
-                        background:#eff6ff;
-                        padding:20px;
-                        border-radius:10px;
-                        margin:20px 0;
-                    ">
-
-                        <p>
-                            <strong>Company:</strong>
-                            ${company_name}
-                        </p>
-
-                        <p>
-                            <strong>Job:</strong>
-                            ${applicant.job_title}
-                        </p>
-
-                        <p>
-                            <strong>Date:</strong>
-                            ${date}
-                        </p>
-
-                        <p>
-                            <strong>Time:</strong>
-                            ${time}
-                        </p>
-
-                        <p>
-                            <strong>Location:</strong>
-                            ${location}
-                        </p>
-
-                    </div>
-
-
-                    <p>
-                        Please be available at the scheduled
-                        date and time.
-                    </p>
-
-
-                    <p>
-                        Regards,
-                    </p>
-
-                    <strong>
-                        ${company_name} HR Team
-                    </strong>
-
-                </div>
-
-                `
-            };
-
-
-            await transporter.sendMail(mailOptions);
-
-            emailSent = true;
-
-            console.log(
-                "✅ Interview email sent:",
-                applicant.candidate_email
-            );
-
-
-        } catch (mailError) {
-
-            console.error(
-                "❌ Interview email failed:",
-                mailError.message
-            );
-
-            // IMPORTANT:
-            // Email fail झाला तरी interview successful राहील.
-
-            emailSent = false;
-
-        }
-
-
-        // ==========================================
-        // FINAL RESPONSE
-        // ==========================================
-
-        return res.status(200).json({
-
-            success: true,
-
-            message: emailSent
-                ? "Interview scheduled and email sent successfully"
-                : "Interview scheduled successfully, but email could not be sent",
-
-            emailSent,
-
-            interview: {
-
-                application_id,
-
-                date,
-
-                time,
-
-                location
-
-            }
-
-        });
-
-
-    } catch (error) {
-
-        console.error(
-            "❌ Schedule Interview Error:",
-            error
-        );
-
-
-        return res.status(500).json({
-
-            success: false,
-
-            message: "Failed to schedule interview",
-
-            error: error.message
-
-        });
-
-    }
-
-};
 
 
