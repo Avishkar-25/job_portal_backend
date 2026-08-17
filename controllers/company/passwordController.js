@@ -115,8 +115,11 @@ exports.changePassword = async (req, res) => {
 // SEND FORGOT PASSWORD OTP
 // =====================================================
 
+
 exports.sendForgotPasswordOtp = async (req, res) => {
+
   try {
+
     const { email } = req.body;
 
     if (!email) {
@@ -126,10 +129,17 @@ exports.sendForgotPasswordOtp = async (req, res) => {
       });
     }
 
-    // Company account only
+
+    // =====================================================
+    // COMPANY ACCOUNT ONLY
+    // =====================================================
+
     const [users] = await db.promise().query(
       `
-      SELECT user_id, name, email
+      SELECT
+        user_id,
+        name,
+        email
       FROM users
       WHERE email = ?
       AND user_type = 'company'
@@ -138,25 +148,38 @@ exports.sendForgotPasswordOtp = async (req, res) => {
       [email]
     );
 
+
     if (users.length === 0) {
+
       return res.status(404).json({
         success: false,
         message: "Company account not found",
       });
+
     }
+
 
     const user = users[0];
 
-    // Generate OTP
+
+    // =====================================================
+    // GENERATE OTP
+    // =====================================================
+
     const otp = Math.floor(
       100000 + Math.random() * 900000
     ).toString();
+
 
     const expiresAt = new Date(
       Date.now() + 10 * 60 * 1000
     );
 
-    // Delete old OTP
+
+    // =====================================================
+    // DELETE OLD OTP
+    // =====================================================
+
     await db.promise().query(
       `
       DELETE FROM password_reset_otps
@@ -165,7 +188,11 @@ exports.sendForgotPasswordOtp = async (req, res) => {
       [user.user_id]
     );
 
-    // Save OTP
+
+    // =====================================================
+    // SAVE OTP
+    // =====================================================
+
     await db.promise().query(
       `
       INSERT INTO password_reset_otps
@@ -182,14 +209,24 @@ exports.sendForgotPasswordOtp = async (req, res) => {
         user.user_id,
         user.email,
         otp,
-        expiresAt,
+        expiresAt
       ]
     );
 
-    // Send email
+
+    // =====================================================
+    // SEND OTP EMAIL
+    // =====================================================
+
     await transporter.sendMail({
-      from: process.env.MAIL_USER,
+
+      // IMPORTANT:
+      // Use same variable as nodemailer.js
+
+      from: `"Job Portal" <${process.env.EMAIL_USER}>`,
+
       to: user.email,
+
       subject: "Job Portal - Password Reset OTP",
 
       html: `
@@ -200,14 +237,18 @@ exports.sendForgotPasswordOtp = async (req, res) => {
           padding: 30px;
           border: 1px solid #ddd;
           border-radius: 12px;
+          background: #ffffff;
         ">
 
-          <h2 style="color:#0d6efd;">
+          <h2 style="
+            color:#0d6efd;
+            margin-bottom:20px;
+          ">
             Password Reset
           </h2>
 
           <p>
-            Hello ${user.name || "Company"},
+            Hello <strong>${user.name || "Company"}</strong>,
           </p>
 
           <p>
@@ -215,11 +256,14 @@ exports.sendForgotPasswordOtp = async (req, res) => {
             Job Portal company account password.
           </p>
 
-          <p>Your OTP is:</p>
+          <p>
+            Your OTP is:
+          </p>
 
           <h1 style="
             letter-spacing: 10px;
             color: #0d6efd;
+            text-align:center;
           ">
             ${otp}
           </h1>
@@ -241,22 +285,45 @@ exports.sendForgotPasswordOtp = async (req, res) => {
           </small>
 
         </div>
-      `,
+      `
     });
+
+
+    console.log(
+      "✅ Password reset OTP sent:",
+      user.email
+    );
+
 
     return res.status(200).json({
+
       success: true,
-      message: "OTP sent successfully to your email",
+
+      message: "OTP sent successfully to your email"
+
     });
+
 
   } catch (error) {
-    console.error("Send OTP Error:", error);
+
+    console.error(
+      "❌ Send OTP Error:",
+      error
+    );
+
 
     return res.status(500).json({
+
       success: false,
+
       message: "Failed to send OTP",
+
+      error: error.message
+
     });
+
   }
+
 };
 
 
@@ -265,15 +332,24 @@ exports.sendForgotPasswordOtp = async (req, res) => {
 // =====================================================
 
 exports.verifyForgotPasswordOtp = async (req, res) => {
+
   try {
+
     const { email, otp } = req.body;
 
+
     if (!email || !otp) {
+
       return res.status(400).json({
+
         success: false,
-        message: "Email and OTP are required",
+
+        message: "Email and OTP are required"
+
       });
+
     }
+
 
     const [rows] = await db.promise().query(
       `
@@ -285,30 +361,53 @@ exports.verifyForgotPasswordOtp = async (req, res) => {
       ORDER BY id DESC
       LIMIT 1
       `,
-      [email, otp]
+      [
+        email,
+        otp
+      ]
     );
 
+
     if (rows.length === 0) {
+
       return res.status(400).json({
+
         success: false,
-        message: "Invalid OTP",
+
+        message: "Invalid OTP"
+
       });
+
     }
+
 
     const resetData = rows[0];
 
-    // Check expiry
+
+    // =====================================================
+    // CHECK EXPIRY
+    // =====================================================
+
     if (
       new Date(resetData.expires_at) < new Date()
     ) {
+
       return res.status(400).json({
+
         success: false,
+
         message:
-          "OTP has expired. Please request a new OTP",
+          "OTP has expired. Please request a new OTP"
+
       });
+
     }
 
-    // Mark verified
+
+    // =====================================================
+    // MARK VERIFIED
+    // =====================================================
+
     await db.promise().query(
       `
       UPDATE password_reset_otps
@@ -318,21 +417,40 @@ exports.verifyForgotPasswordOtp = async (req, res) => {
       [resetData.id]
     );
 
+
     return res.status(200).json({
+
       success: true,
+
       message: "OTP verified successfully",
-      user_id: resetData.user_id,
+
+      user_id: resetData.user_id
+
     });
+
 
   } catch (error) {
-    console.error("Verify OTP Error:", error);
+
+    console.error(
+      "❌ Verify OTP Error:",
+      error
+    );
+
 
     return res.status(500).json({
+
       success: false,
+
       message: "Server error",
+
+      error: error.message
+
     });
+
   }
+
 };
+
 
 
 // =====================================================
