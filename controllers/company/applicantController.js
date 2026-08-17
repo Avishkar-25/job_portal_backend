@@ -578,24 +578,44 @@ exports.updateApplicantStatus = async (req, res) => {
             const employee = mailData[0];
 
 
-          transporter.sendMail({
-    from: `"Job Portal" <${process.env.EMAIL_USER}>`,
-    to: employee.email,
-    subject: `Application Status - ${status}`,
-    html: statusMail(
-        employee.full_name,
-        employee.company_name,
-        employee.job_title,
-        status
-    )
-})
+            transporter.sendMail({
 
-          .then(() => {
-    console.log("✅ Status email sent:", employee.email);
-})
-.catch((mailError) => {
-    console.error("❌ Status email failed:", mailError.message);
-});
+                from:
+                    `"Job Portal" <${process.env.EMAIL_USER}>`,
+
+                to:
+                    employee.email,
+
+                subject:
+                    `Application Status - ${status}`,
+
+                html:
+                    statusMail(
+                        employee.full_name,
+                        employee.company_name,
+                        employee.job_title,
+                        status
+                    )
+
+            })
+
+            .then(() => {
+
+                console.log(
+                    "Status email sent:",
+                    employee.email
+                );
+
+            })
+
+            .catch((mailError) => {
+
+                console.error(
+                    "Status email failed:",
+                    mailError.message
+                );
+
+            });
 
         }
 
