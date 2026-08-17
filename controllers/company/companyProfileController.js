@@ -496,7 +496,8 @@ exports.uploadLogo = async (req, res) => {
 
         }
 
-        const oldLogo = rows[0].logo;
+        // Cloudinary image URL
+        const logoUrl = req.file.path;
 
         await db.promise().query(
             `
@@ -507,25 +508,10 @@ exports.uploadLogo = async (req, res) => {
             WHERE user_id = ?
             `,
             [
-                req.file.filename,
+                logoUrl,
                 user_id
             ]
         );
-
-        // Delete old logo
-        if (oldLogo) {
-
-            const oldPath = path.join(
-                __dirname,
-                "../../uploads/company/logos",
-                oldLogo
-            );
-
-            if (fs.existsSync(oldPath)) {
-                fs.unlinkSync(oldPath);
-            }
-
-        }
 
         res.json({
 
@@ -533,16 +519,13 @@ exports.uploadLogo = async (req, res) => {
 
             message: "Logo uploaded successfully",
 
-            logo: req.file.filename
+            logo: logoUrl
 
         });
 
     } catch (error) {
 
-        console.error(
-            "UPLOAD LOGO:",
-            error
-        );
+        console.error("UPLOAD LOGO:", error);
 
         res.status(500).json({
 
@@ -595,7 +578,8 @@ exports.uploadCover = async (req, res) => {
 
         }
 
-        const oldCover = rows[0].cover_image;
+        // Cloudinary image URL
+        const coverUrl = req.file.path;
 
         await db.promise().query(
             `
@@ -606,25 +590,10 @@ exports.uploadCover = async (req, res) => {
             WHERE user_id = ?
             `,
             [
-                req.file.filename,
+                coverUrl,
                 user_id
             ]
         );
-
-        // Delete old cover
-        if (oldCover) {
-
-            const oldPath = path.join(
-                __dirname,
-                "../../uploads/company/covers",
-                oldCover
-            );
-
-            if (fs.existsSync(oldPath)) {
-                fs.unlinkSync(oldPath);
-            }
-
-        }
 
         res.json({
 
@@ -632,16 +601,13 @@ exports.uploadCover = async (req, res) => {
 
             message: "Cover uploaded successfully",
 
-            cover_image: req.file.filename
+            cover_image: coverUrl
 
         });
 
     } catch (error) {
 
-        console.error(
-            "UPLOAD COVER:",
-            error
-        );
+        console.error("UPLOAD COVER:", error);
 
         res.status(500).json({
 

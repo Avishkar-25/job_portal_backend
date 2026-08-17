@@ -1,165 +1,93 @@
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
-// ===============================
-// Upload Directories
-// ===============================
+const cloudinary = require("../config/cloudinary");
 
-const profileDir = path.join(__dirname, "../uploads/employee/profiles");
-const resumeDir = path.join(__dirname, "../uploads/employee/resumes");
 
-const companyLogoDir = path.join(
-    __dirname,
-    "../uploads/company/logos"
-);
+// =====================================================
+// COMPANY LOGO STORAGE
+// =====================================================
 
-const companyCoverDir = path.join(
-    __dirname,
-    "../uploads/company/covers"
-);
+const logoStorage = new CloudinaryStorage({
 
-// ===============================
-// Create Directories
-// ===============================
+    cloudinary: cloudinary,
 
-[
-    profileDir,
-    resumeDir,
-    companyLogoDir,
-    companyCoverDir
-].forEach((dir) => {
+    params: {
+        folder: "job-portal/company/logos",
 
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, {
-            recursive: true
-        });
+        allowed_formats: [
+            "jpg",
+            "jpeg",
+            "png",
+            "webp"
+        ],
+
+        resource_type: "image"
     }
 
 });
 
-// ===============================
-// Storage
-// ===============================
 
-const storage = multer.diskStorage({
+// =====================================================
+// COMPANY COVER STORAGE
+// =====================================================
 
-    destination: (req, file, cb) => {
+const coverStorage = new CloudinaryStorage({
 
-        switch (file.fieldname) {
+    cloudinary: cloudinary,
 
-            case "profile_photo":
-                cb(null, profileDir);
-                break;
+    params: {
+        folder: "job-portal/company/covers",
 
-            case "resume":
-                cb(null, resumeDir);
-                break;
+        allowed_formats: [
+            "jpg",
+            "jpeg",
+            "png",
+            "webp"
+        ],
 
-            case "logo":
-                cb(null, companyLogoDir);
-                break;
-
-            case "cover_image":
-                cb(null, companyCoverDir);
-                break;
-
-            default:
-                cb(new Error("Invalid upload field."));
-        }
-
-    },
-
-    filename: (req, file, cb) => {
-
-        const fileName =
-            Date.now() +
-            "-" +
-            Math.round(Math.random() * 1e9) +
-            path.extname(file.originalname);
-
-        cb(null, fileName);
-
+        resource_type: "image"
     }
 
 });
 
-// ===============================
-// File Filter
-// ===============================
+
+// =====================================================
+// FILE FILTER
+// =====================================================
 
 const fileFilter = (req, file, cb) => {
 
-    // Images
-    if (
-        file.fieldname === "profile_photo" ||
-        file.fieldname === "logo" ||
-        file.fieldname === "cover_image"
-    ) {
+    const allowedMimeTypes = [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/webp"
+    ];
 
-        const allowedExtensions = [
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".webp"
-        ];
-
-        const ext = path
-            .extname(file.originalname)
-            .toLowerCase();
-
-        const allowedMimeTypes = [
-            "image/jpeg",
-            "image/jpg",
-            "image/png",
-            "image/webp"
-        ];
-
-        if (
-            allowedExtensions.includes(ext) &&
-            allowedMimeTypes.includes(file.mimetype)
-        ) {
-            return cb(null, true);
-        }
+    if (!allowedMimeTypes.includes(file.mimetype)) {
 
         return cb(
             new Error(
                 "Only JPG, JPEG, PNG and WEBP images are allowed."
             )
         );
+
     }
 
-    // Resume
-    if (file.fieldname === "resume") {
-
-        const ext = path
-            .extname(file.originalname)
-            .toLowerCase();
-
-        if (
-            ext === ".pdf" &&
-            file.mimetype === "application/pdf"
-        ) {
-            return cb(null, true);
-        }
-
-        return cb(
-            new Error("Only PDF resume is allowed.")
-        );
-    }
-
-    cb(new Error("Invalid upload field."));
+    cb(null, true);
 };
 
-// ===============================
-// Multer
-// ===============================
 
-const upload = multer({
+// =====================================================
+// LOGO UPLOAD
+// =====================================================
 
-    storage,
+const uploadCompanyLogo = multer({
 
-    fileFilter,
+    storage: logoStorage,
+
+    fileFilter: fileFilter,
 
     limits: {
         fileSize: 5 * 1024 * 1024
@@ -167,4 +95,25 @@ const upload = multer({
 
 });
 
-module.exports = upload;
+
+// =====================================================
+// COVER UPLOAD
+// =====================================================
+
+const uploadCompanyCover = multer({
+
+    storage: coverStorage,
+
+    fileFilter: fileFilter,
+
+    limits: {
+        fileSize: 5 * 1024 * 1024
+    }
+
+});
+
+
+module.exports = {
+    uploadCompanyLogo,
+    uploadCompanyCover
+};

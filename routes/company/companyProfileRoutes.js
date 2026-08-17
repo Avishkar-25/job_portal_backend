@@ -1,8 +1,13 @@
 const express = require("express");
 const router = express.Router();
 
+const {
+    uploadCompanyLogo,
+    uploadCompanyCover
+} = require("../../middleware/upload");
+
 const auth = require("../../middleware/authMiddleware");
-const upload = require("../../middleware/upload");
+
 const {
     getCompanyProfile,
     updateCompanyInformation,
@@ -10,13 +15,16 @@ const {
     updateCompanyLegal,
     deleteCompanyLegal,
     updateCompanySocial,
-     deleteCompanySocial,
+    deleteCompanySocial,
     uploadLogo,
     uploadCover
 } = require("../../controllers/company/companyProfileController");
 
 
+// =====================================================
 // GET COMPANY PROFILE
+// =====================================================
+
 router.get(
     "/profile",
     auth,
@@ -24,7 +32,10 @@ router.get(
 );
 
 
+// =====================================================
 // COMPANY INFORMATION
+// =====================================================
+
 router.put(
     "/profile/information",
     auth,
@@ -32,7 +43,10 @@ router.put(
 );
 
 
+// =====================================================
 // ADDRESS
+// =====================================================
+
 router.put(
     "/profile/address",
     auth,
@@ -40,44 +54,60 @@ router.put(
 );
 
 
+// =====================================================
 // LEGAL DETAILS
+// =====================================================
+
 router.put(
     "/profile/legal",
     auth,
     updateCompanyLegal
 );
+
 router.delete(
     "/profile/legal/:type",
     auth,
     deleteCompanyLegal
 );
 
+
+// =====================================================
 // SOCIAL MEDIA
+// =====================================================
+
 router.put(
     "/profile/social",
     auth,
     updateCompanySocial
 );
+
 router.delete(
     "/profile/social/:type",
     auth,
     deleteCompanySocial
 );
 
+
+// =====================================================
 // LOGO
+// =====================================================
+
 router.post(
     "/profile/logo",
     auth,
-    upload.single("logo"),
+    uploadCompanyLogo.single("logo"),
     uploadLogo
 );
 
 
+// =====================================================
 // COVER
+// =====================================================
+
 router.post(
     "/profile/cover",
     auth,
-    upload.single("cover_image"),
+    uploadCompanyCover.single("cover_image"),
     uploadCover
 );
 
