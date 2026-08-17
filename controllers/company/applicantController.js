@@ -196,6 +196,26 @@ exports.scheduleInterview = async (req, res) => {
 
 
         // =====================================================
+        // CHECK EMPLOYEE EMAIL
+        // =====================================================
+
+        if (!applicant.candidate_email) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Employee email not found"
+            });
+
+        }
+
+
+        console.log(
+            "Interview candidate email:",
+            applicant.candidate_email
+        );
+
+
+        // =====================================================
         // SAVE INTERVIEW DETAILS
         // =====================================================
 
@@ -240,30 +260,7 @@ exports.scheduleInterview = async (req, res) => {
 
 
         // =====================================================
-        // IMPORTANT
-        // RESPONSE IMMEDIATELY
-        // =====================================================
-
-        res.status(200).json({
-
-            success: true,
-
-            message: "Interview scheduled successfully",
-
-            emailStatus: "Email is being sent",
-
-            interview: {
-                application_id,
-                date,
-                time,
-                location
-            }
-
-        });
-
-
-        // =====================================================
-        // SEND EMAIL IN BACKGROUND
+        // PREPARE MAIL
         // =====================================================
 
         const mailOptions = {
@@ -359,25 +356,73 @@ exports.scheduleInterview = async (req, res) => {
         };
 
 
-        transporter.sendMail(mailOptions)
+        // =====================================================
+        // RESPONSE IMMEDIATELY
+        // =====================================================
 
-            .then(() => {
+        res.status(200).json({
 
-                console.log(
-                    "Interview email sent:",
-                    applicant.candidate_email
-                );
+            success: true,
 
-            })
+            message: "Interview scheduled successfully",
 
-            .catch((mailError) => {
+            emailStatus: "Email is being sent",
 
-                console.error(
-                    "Interview email failed:",
-                    mailError.message
-                );
+            interview: {
+                application_id,
+                date,
+                time,
+                location
+            }
 
-            });
+        });
+
+
+        // =====================================================
+        // SEND EMAIL AFTER RESPONSE
+        // =====================================================
+
+        setImmediate(() => {
+
+            transporter.sendMail(mailOptions)
+
+                .then((info) => {
+
+                    console.log(
+                        "✅ Interview email sent successfully"
+                    );
+
+                    console.log(
+                        "📧 To:",
+                        applicant.candidate_email
+                    );
+
+                    console.log(
+                        "📨 Message ID:",
+                        info.messageId
+                    );
+
+                })
+
+                .catch((mailError) => {
+
+                    console.error(
+                        "❌ Interview email failed:"
+                    );
+
+                    console.error(
+                        "To:",
+                        applicant.candidate_email
+                    );
+
+                    console.error(
+                        "Error:",
+                        mailError.message
+                    );
+
+                });
+
+        });
 
 
     } catch (error) {
@@ -387,21 +432,24 @@ exports.scheduleInterview = async (req, res) => {
             error
         );
 
+        // जर response आधीच गेलेला असेल तर पुन्हा response देऊ नका
+        if (!res.headersSent) {
 
-        return res.status(500).json({
+            return res.status(500).json({
 
-            success: false,
+                success: false,
 
-            message: "Failed to schedule interview",
+                message: "Failed to schedule interview",
 
-            error: error.message
+                error: error.message
 
-        });
+            });
+
+        }
 
     }
 
 };
-
 
 
 // ============================================================
