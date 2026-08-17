@@ -1,6 +1,6 @@
 const db = require("../../config/db");
 const bcrypt = require("bcryptjs");
-const transporter = require("../../config/mail");
+const sendEmail = require("../../config/mailer");
 
 // =====================================================
 // SEND FORGOT PASSWORD OTP - EMPLOYEE
@@ -8,9 +8,13 @@ const transporter = require("../../config/mail");
 
 exports.sendForgotPasswordOtp = async (req, res) => {
     try {
+
         const { email } = req.body;
 
-        // Validation
+        // =====================================================
+        // VALIDATION
+        // =====================================================
+
         if (!email) {
             return res.status(400).json({
                 success: false,
@@ -18,16 +22,25 @@ exports.sendForgotPasswordOtp = async (req, res) => {
             });
         }
 
-        // Find employee from users table
+        const normalizedEmail = email.trim().toLowerCase();
+
+        // =====================================================
+        // FIND EMPLOYEE
+        // =====================================================
+
         const [users] = await db.promise().query(
             `
-            SELECT user_id, name, email, user_type
+            SELECT
+                user_id,
+                name,
+                email,
+                user_type
             FROM users
             WHERE email = ?
             AND user_type = 'employee'
             LIMIT 1
             `,
-            [email]
+            [normalizedEmail]
         );
 
         if (users.length === 0) {
@@ -39,7 +52,10 @@ exports.sendForgotPasswordOtp = async (req, res) => {
 
         const user = users[0];
 
-        // Generate 6 digit OTP
+        // =====================================================
+        // GENERATE OTP
+        // =====================================================
+
         const otp = Math.floor(
             100000 + Math.random() * 900000
         ).toString();
@@ -49,7 +65,10 @@ exports.sendForgotPasswordOtp = async (req, res) => {
             Date.now() + 10 * 60 * 1000
         );
 
-        // Delete previous OTP
+        // =====================================================
+        // DELETE OLD OTP
+        // =====================================================
+
         await db.promise().query(
             `
             DELETE FROM password_reset_otps
@@ -58,7 +77,10 @@ exports.sendForgotPasswordOtp = async (req, res) => {
             [user.user_id]
         );
 
-        // Insert new OTP
+        // =====================================================
+        // SAVE NEW OTP
+        // =====================================================
+
         await db.promise().query(
             `
             INSERT INTO password_reset_otps
@@ -79,10 +101,16 @@ exports.sendForgotPasswordOtp = async (req, res) => {
             ]
         );
 
-        // Send OTP email
-        await transporter.sendMail({
-            from: process.env.MAIL_USER,
+        // =====================================================
+        // SEND OTP USING BREVO
+        // =====================================================
+
+        await sendEmail({
+
             to: user.email,
+
+            toName: user.name || "Employee",
+
             subject: "Job Portal - Password Reset OTP",
 
             html: `
@@ -104,7 +132,10 @@ exports.sendForgotPasswordOtp = async (req, res) => {
                     </h2>
 
                     <p>
-                        Hello <strong>${user.name || "Employee"}</strong>,
+                        Hello
+                        <strong>
+                            ${user.name || "Employee"}
+                        </strong>,
                     </p>
 
                     <p>
@@ -120,6 +151,7 @@ exports.sendForgotPasswordOtp = async (req, res) => {
                         text-align: center;
                         margin: 25px 0;
                     ">
+
                         <span style="
                             display: inline-block;
                             padding: 15px 25px;
@@ -132,6 +164,7 @@ exports.sendForgotPasswordOtp = async (req, res) => {
                         ">
                             ${otp}
                         </span>
+
                     </div>
 
                     <p>
@@ -154,24 +187,59 @@ exports.sendForgotPasswordOtp = async (req, res) => {
                     </p>
 
                 </div>
+            `,
+
+            text: `
+Job Portal Password Reset
+
+Hello ${user.name || "Employee"},
+
+Your password reset OTP is: ${otp}
+
+This OTP is valid for 10 minutes.
+
+If you did not request a password reset,
+please ignore this email.
+
+Job Portal Security Team
             `
         });
 
+        console.log(
+            "✅ Employee OTP sent successfully:",
+            user.email
+        );
+
+        // =====================================================
+        // RESPONSE
+        // =====================================================
+
         return res.status(200).json({
+
             success: true,
-            message: "OTP sent successfully to your email"
+
+            message:
+                "OTP sent successfully to your email"
+
         });
 
     } catch (error) {
 
         console.error(
-            "Employee Send OTP Error:",
+            "❌ Employee Send OTP Error:",
             error
         );
 
         return res.status(500).json({
+
             success: false,
-            message: "Failed to send OTP"
+
+            message:
+                "Failed to send OTP",
+
+            error:
+                error.message
+
         });
     }
 };
@@ -182,22 +250,46 @@ exports.sendForgotPasswordOtp = async (req, res) => {
 // =====================================================
 
 exports.verifyForgotPasswordOtp = async (req, res) => {
+
     try {
 
         const { email, otp } = req.body;
 
-        // Validation
+        // =====================================================
+        // VALIDATION
+        // =====================================================
+
         if (!email || !otp) {
+
             return res.status(400).json({
+
                 success: false,
-                message: "Email and OTP are required"
+
+                message:
+                    "Email and OTP are required"
+
             });
         }
 
-        // Find valid OTP
+        const normalizedEmail =
+            email.trim().toLowerCase();
+
+        const normalizedOtp =
+            otp.toString().trim();
+
+        // =====================================================
+        // FIND OTP
+        // =====================================================
+
         const [rows] = await db.promise().query(
             `
-            SELECT *
+            SELECT
+                id,
+                user_id,
+                email,
+                otp,
+                expires_at,
+                is_verified
             FROM password_reset_otps
             WHERE email = ?
             AND otp = ?
@@ -205,32 +297,63 @@ exports.verifyForgotPasswordOtp = async (req, res) => {
             ORDER BY id DESC
             LIMIT 1
             `,
-            [email, otp]
+            [
+                normalizedEmail,
+                normalizedOtp
+            ]
         );
 
+        // =====================================================
+        // INVALID OTP
+        // =====================================================
+
         if (rows.length === 0) {
+
             return res.status(400).json({
+
                 success: false,
-                message: "Invalid OTP"
+
+                message:
+                    "Invalid OTP"
+
             });
         }
 
         const resetData = rows[0];
 
-        // Check expiry
-        if (
-            new Date(resetData.expires_at) <
-            new Date()
-        ) {
+        // =====================================================
+        // CHECK EXPIRY
+        // =====================================================
+
+        const currentTime = new Date();
+
+        const expiryTime =
+            new Date(resetData.expires_at);
+
+        if (expiryTime <= currentTime) {
+
+            await db.promise().query(
+                `
+                DELETE FROM password_reset_otps
+                WHERE id = ?
+                `,
+                [resetData.id]
+            );
 
             return res.status(400).json({
+
                 success: false,
+
                 message:
                     "OTP has expired. Please request a new OTP"
+
             });
         }
 
-        // Mark OTP as verified
+        // =====================================================
+        // VERIFY OTP
+        // =====================================================
+
         await db.promise().query(
             `
             UPDATE password_reset_otps
@@ -240,22 +363,43 @@ exports.verifyForgotPasswordOtp = async (req, res) => {
             [resetData.id]
         );
 
+        console.log(
+            `✅ Employee OTP verified: ${resetData.email}`
+        );
+
+        // =====================================================
+        // RESPONSE
+        // =====================================================
+
         return res.status(200).json({
+
             success: true,
-            message: "OTP verified successfully",
-            user_id: resetData.user_id
+
+            message:
+                "OTP verified successfully",
+
+            user_id:
+                resetData.user_id
+
         });
 
     } catch (error) {
 
         console.error(
-            "Employee Verify OTP Error:",
+            "❌ Employee Verify OTP Error:",
             error
         );
 
         return res.status(500).json({
+
             success: false,
-            message: "Server error"
+
+            message:
+                "Server error",
+
+            error:
+                error.message
+
         });
     }
 };
@@ -266,6 +410,7 @@ exports.verifyForgotPasswordOtp = async (req, res) => {
 // =====================================================
 
 exports.resetPassword = async (req, res) => {
+
     try {
 
         const {
@@ -274,63 +419,124 @@ exports.resetPassword = async (req, res) => {
             confirmPassword
         } = req.body;
 
-        // Validation
+        // =====================================================
+        // VALIDATION
+        // =====================================================
+
         if (
             !email ||
             !newPassword ||
             !confirmPassword
         ) {
+
             return res.status(400).json({
+
                 success: false,
-                message: "All fields are required"
+
+                message:
+                    "All fields are required"
+
             });
         }
 
-        // Password length
         if (newPassword.length < 6) {
+
             return res.status(400).json({
+
                 success: false,
+
                 message:
                     "Password must be at least 6 characters"
+
             });
         }
 
-        // Password match
         if (newPassword !== confirmPassword) {
+
             return res.status(400).json({
+
                 success: false,
+
                 message:
                     "New password and confirm password do not match"
+
             });
         }
 
-        // Get verified OTP
+        const normalizedEmail =
+            email.trim().toLowerCase();
+
+        // =====================================================
+        // GET VERIFIED OTP
+        // =====================================================
+
         const [resetRows] = await db.promise().query(
             `
-            SELECT *
+            SELECT
+                id,
+                user_id,
+                email,
+                expires_at,
+                is_verified
             FROM password_reset_otps
             WHERE email = ?
             AND is_verified = 1
             ORDER BY id DESC
             LIMIT 1
             `,
-            [email]
+            [normalizedEmail]
         );
 
         if (resetRows.length === 0) {
+
             return res.status(400).json({
+
                 success: false,
+
                 message:
                     "Please verify OTP first"
+
             });
         }
 
         const resetData = resetRows[0];
 
-        // Get employee password
+        // =====================================================
+        // CHECK OTP EXPIRY AGAIN
+        // =====================================================
+
+        if (
+            new Date(resetData.expires_at) <=
+            new Date()
+        ) {
+
+            await db.promise().query(
+                `
+                DELETE FROM password_reset_otps
+                WHERE id = ?
+                `,
+                [resetData.id]
+            );
+
+            return res.status(400).json({
+
+                success: false,
+
+                message:
+                    "OTP has expired. Please request a new OTP"
+
+            });
+        }
+
+        // =====================================================
+        // GET EMPLOYEE
+        // =====================================================
+
         const [users] = await db.promise().query(
             `
-            SELECT password
+            SELECT
+                user_id,
+                password
             FROM users
             WHERE user_id = ?
             AND user_type = 'employee'
@@ -340,33 +546,55 @@ exports.resetPassword = async (req, res) => {
         );
 
         if (users.length === 0) {
+
             return res.status(404).json({
+
                 success: false,
-                message: "Employee not found"
+
+                message:
+                    "Employee account not found"
+
             });
         }
 
-        // Check old password
-        const samePassword = await bcrypt.compare(
-            newPassword,
-            users[0].password
-        );
+        const user = users[0];
+
+        // =====================================================
+        // CHECK OLD PASSWORD
+        // =====================================================
+
+        const samePassword =
+            await bcrypt.compare(
+                newPassword,
+                user.password
+            );
 
         if (samePassword) {
+
             return res.status(400).json({
+
                 success: false,
+
                 message:
                     "New password must be different from old password"
+
             });
         }
 
-        // Hash password
-        const hashedPassword = await bcrypt.hash(
-            newPassword,
-            10
-        );
+        // =====================================================
+        // HASH PASSWORD
+        // =====================================================
 
-        // Update password
+        const hashedPassword =
+            await bcrypt.hash(
+                newPassword,
+                10
+            );
+
+        // =====================================================
+        // UPDATE PASSWORD
+        // =====================================================
+
         await db.promise().query(
             `
             UPDATE users
@@ -380,7 +608,10 @@ exports.resetPassword = async (req, res) => {
             ]
         );
 
-        // Delete used OTP
+        // =====================================================
+        // DELETE USED OTP
+        // =====================================================
+
         await db.promise().query(
             `
             DELETE FROM password_reset_otps
@@ -389,22 +620,40 @@ exports.resetPassword = async (req, res) => {
             [resetData.user_id]
         );
 
+        console.log(
+            `✅ Employee password reset successfully: ${normalizedEmail}`
+        );
+
+        // =====================================================
+        // RESPONSE
+        // =====================================================
+
         return res.status(200).json({
+
             success: true,
+
             message:
-                "Password reset successfully"
+                "Password reset successfully. Please login."
+
         });
 
     } catch (error) {
 
         console.error(
-            "Employee Reset Password Error:",
+            "❌ Employee Reset Password Error:",
             error
         );
 
         return res.status(500).json({
+
             success: false,
-            message: "Server error"
+
+            message:
+                "Server error",
+
+            error:
+                error.message
+
         });
     }
 };

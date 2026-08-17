@@ -1,5 +1,5 @@
 const db = require("../../config/db");
-const transporter = require("../../config/mail");
+const transporter = require("../../config/mailer");
 const { statusMail } = require("../../templates/statusMail");
 // ==========================================
 // GET COMPANY APPLICANTS
@@ -80,6 +80,13 @@ exports.getApplicants = async (req, res) => {
   }
 
 };
+
+
+// ============================================================
+// SCHEDULE INTERVIEW
+// ============================================================
+
+
 
 
 // ============================================================
@@ -196,7 +203,7 @@ exports.scheduleInterview = async (req, res) => {
 
 
         // =====================================================
-        // CHECK EMPLOYEE EMAIL
+        // CHECK EMAIL
         // =====================================================
 
         if (!applicant.candidate_email) {
@@ -210,7 +217,7 @@ exports.scheduleInterview = async (req, res) => {
 
 
         console.log(
-            "Interview candidate email:",
+            "📧 Interview candidate email:",
             applicant.candidate_email
         );
 
@@ -251,7 +258,7 @@ exports.scheduleInterview = async (req, res) => {
 
 
         console.log(
-            "Interview saved:",
+            "✅ Interview saved:",
             application_id,
             date,
             time,
@@ -260,104 +267,101 @@ exports.scheduleInterview = async (req, res) => {
 
 
         // =====================================================
-        // PREPARE MAIL
+        // INTERVIEW EMAIL HTML
         // =====================================================
 
-        const mailOptions = {
+        const interviewHtml = `
 
-            from: `"Job Portal" <${process.env.EMAIL_USER}>`,
+            <div style="
+                font-family: Arial, sans-serif;
+                max-width: 600px;
+                margin: auto;
+                padding: 25px;
+                border: 1px solid #ddd;
+                border-radius: 12px;
+                background: #ffffff;
+            ">
 
-            to: applicant.candidate_email,
+                <h2 style="
+                    color:#2563eb;
+                    margin-bottom:20px;
+                ">
+                    Interview Scheduled
+                </h2>
 
-            subject:
-                `Interview Scheduled - ${applicant.job_title}`,
 
-            html: `
+                <p>
+                    Dear
+                    <strong>
+                        ${applicant.candidate_name}
+                    </strong>,
+                </p>
+
+
+                <p>
+                    Your interview has been successfully
+                    scheduled for the position of
+                    <strong>
+                        ${applicant.job_title}
+                    </strong>.
+                </p>
+
+
                 <div style="
-                    font-family: Arial, sans-serif;
-                    max-width: 600px;
-                    margin: auto;
-                    padding: 25px;
-                    border: 1px solid #ddd;
-                    border-radius: 12px;
-                    background: #ffffff;
+                    background:#eff6ff;
+                    padding:20px;
+                    border-radius:10px;
+                    margin:20px 0;
                 ">
 
-                    <h2 style="
-                        color:#2563eb;
-                        margin-bottom:20px;
-                    ">
-                        Interview Scheduled
-                    </h2>
-
                     <p>
-                        Dear
-                        <strong>
-                            ${applicant.candidate_name}
-                        </strong>,
+                        <strong>Company:</strong>
+                        ${company_name}
                     </p>
 
                     <p>
-                        Your interview has been successfully
-                        scheduled for the position of
-                        <strong>
-                            ${applicant.job_title}
-                        </strong>.
-                    </p>
-
-                    <div style="
-                        background:#eff6ff;
-                        padding:20px;
-                        border-radius:10px;
-                        margin:20px 0;
-                    ">
-
-                        <p>
-                            <strong>Company:</strong>
-                            ${company_name}
-                        </p>
-
-                        <p>
-                            <strong>Job:</strong>
-                            ${applicant.job_title}
-                        </p>
-
-                        <p>
-                            <strong>Date:</strong>
-                            ${date}
-                        </p>
-
-                        <p>
-                            <strong>Time:</strong>
-                            ${time}
-                        </p>
-
-                        <p>
-                            <strong>Location:</strong>
-                            ${location}
-                        </p>
-
-                    </div>
-
-                    <p>
-                        Please be available at the scheduled
-                        date and time.
+                        <strong>Job:</strong>
+                        ${applicant.job_title}
                     </p>
 
                     <p>
-                        Regards,<br/>
-                        <strong>
-                            ${company_name} HR Team
-                        </strong>
+                        <strong>Date:</strong>
+                        ${date}
+                    </p>
+
+                    <p>
+                        <strong>Time:</strong>
+                        ${time}
+                    </p>
+
+                    <p>
+                        <strong>Location:</strong>
+                        ${location}
                     </p>
 
                 </div>
-            `
-        };
+
+
+                <p>
+                    Please be available at the scheduled
+                    date and time.
+                </p>
+
+
+                <p>
+                    Regards,<br/>
+                    <strong>
+                        ${company_name} HR Team
+                    </strong>
+                </p>
+
+            </div>
+
+        `;
 
 
         // =====================================================
-        // RESPONSE IMMEDIATELY
+        // RESPONSE
         // =====================================================
 
         res.status(200).json({
@@ -379,48 +383,63 @@ exports.scheduleInterview = async (req, res) => {
 
 
         // =====================================================
-        // SEND EMAIL AFTER RESPONSE
+        // SEND EMAIL USING BREVO
         // =====================================================
 
-        setImmediate(() => {
+        setImmediate(async () => {
 
-            transporter.sendMail(mailOptions)
+            try {
 
-                .then((info) => {
+                console.log(
+                    `📧 Sending interview email to: ${applicant.candidate_email}`
+                );
 
-                    console.log(
-                        "✅ Interview email sent successfully"
-                    );
 
-                    console.log(
-                        "📧 To:",
-                        applicant.candidate_email
-                    );
+                const result = await sendEmail({
 
-                    console.log(
-                        "📨 Message ID:",
-                        info.messageId
-                    );
+                    to: applicant.candidate_email.trim(),
 
-                })
+                    toName:
+                        applicant.candidate_name,
 
-                .catch((mailError) => {
+                    subject:
+                        `Interview Scheduled - ${applicant.job_title}`,
 
-                    console.error(
-                        "❌ Interview email failed:"
-                    );
-
-                    console.error(
-                        "To:",
-                        applicant.candidate_email
-                    );
-
-                    console.error(
-                        "Error:",
-                        mailError.message
-                    );
+                    html:
+                        interviewHtml
 
                 });
+
+
+                console.log(
+                    "✅ Brevo interview email sent successfully"
+                );
+
+
+                console.log(
+                    "📧 Message ID:",
+                    result.messageId
+                );
+
+
+                console.log(
+                    "📧 Recipient:",
+                    applicant.candidate_email
+                );
+
+
+            } catch (mailError) {
+
+                console.error(
+                    "❌ BREVO INTERVIEW EMAIL FAILED"
+                );
+
+                console.error(
+                    "Error:",
+                    mailError.message
+                );
+
+            }
 
         });
 
@@ -428,11 +447,11 @@ exports.scheduleInterview = async (req, res) => {
     } catch (error) {
 
         console.error(
-            "Schedule Interview Error:",
+            "❌ Schedule Interview Error:",
             error
         );
 
-        // जर response आधीच गेलेला असेल तर पुन्हा response देऊ नका
+
         if (!res.headersSent) {
 
             return res.status(500).json({
@@ -461,8 +480,11 @@ exports.updateApplicantStatus = async (req, res) => {
     try {
 
         const user_id = req.user.user_id;
+
         const { application_id } = req.params;
+
         const { status } = req.body;
+
 
         // =====================================================
         // VALIDATION
@@ -477,6 +499,7 @@ exports.updateApplicantStatus = async (req, res) => {
             "Rejected"
         ];
 
+
         if (!status) {
 
             return res.status(400).json({
@@ -485,6 +508,7 @@ exports.updateApplicantStatus = async (req, res) => {
             });
 
         }
+
 
         if (!allowedStatuses.includes(status)) {
 
@@ -495,19 +519,22 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
+
         // =====================================================
         // GET COMPANY
         // =====================================================
 
         const [company] = await db.promise().query(
             `
-            SELECT company_id
+            SELECT
+                company_id
             FROM companies
             WHERE user_id = ?
             LIMIT 1
             `,
             [user_id]
         );
+
 
         if (company.length === 0) {
 
@@ -518,7 +545,9 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
+
         const company_id = company[0].company_id;
+
 
         // =====================================================
         // GET APPLICATION + EMAIL DATA
@@ -528,9 +557,12 @@ exports.updateApplicantStatus = async (req, res) => {
             `
             SELECT
                 aj.application_id,
+
                 e.full_name,
                 e.email,
+
                 j.job_title,
+
                 c.company_name
 
             FROM applied_jobs aj
@@ -555,6 +587,7 @@ exports.updateApplicantStatus = async (req, res) => {
             ]
         );
 
+
         if (application.length === 0) {
 
             return res.status(404).json({
@@ -564,7 +597,9 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
+
         const employee = application[0];
+
 
         // =====================================================
         // UPDATE STATUS
@@ -584,6 +619,7 @@ exports.updateApplicantStatus = async (req, res) => {
             ]
         );
 
+
         if (updateResult.affectedRows === 0) {
 
             return res.status(500).json({
@@ -593,9 +629,11 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
+
         console.log(
             `✅ Application ${application_id} status updated to ${status}`
         );
+
 
         // =====================================================
         // RESPONSE
@@ -609,14 +647,16 @@ exports.updateApplicantStatus = async (req, res) => {
 
             status,
 
-            emailStatus: employee.email
-                ? "Email is being sent"
-                : "Employee email not found"
+            emailStatus:
+                employee.email
+                    ? "Email is being sent"
+                    : "Employee email not found"
 
         });
 
+
         // =====================================================
-        // EMAIL
+        // CHECK EMAIL
         // =====================================================
 
         if (!employee.email) {
@@ -629,6 +669,11 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
+
+        // =====================================================
+        // SEND STATUS EMAIL USING BREVO
+        // =====================================================
+
         setImmediate(async () => {
 
             try {
@@ -637,18 +682,14 @@ exports.updateApplicantStatus = async (req, res) => {
                     `📧 Sending status email to: ${employee.email}`
                 );
 
-                const mailOptions = {
 
-                    from: {
-                        name:
-                            process.env.BREVO_FROM_NAME ||
-                            "Job Portal",
+                const result = await sendEmail({
 
-                        address:
-                            process.env.BREVO_FROM_EMAIL
-                    },
+                    to:
+                        employee.email.trim(),
 
-                    to: employee.email.trim(),
+                    toName:
+                        employee.full_name,
 
                     subject:
                         `Application Status - ${status}`,
@@ -661,24 +702,25 @@ exports.updateApplicantStatus = async (req, res) => {
                             status
                         )
 
-                };
+                });
 
-                const info =
-                    await transporter.sendMail(mailOptions);
 
                 console.log(
                     "✅ Brevo status email sent successfully"
                 );
 
+
                 console.log(
                     "📧 Message ID:",
-                    info.messageId
+                    result.messageId
                 );
+
 
                 console.log(
                     "📧 Recipient:",
                     employee.email
                 );
+
 
             } catch (mailError) {
 
@@ -686,29 +728,16 @@ exports.updateApplicantStatus = async (req, res) => {
                     "❌ BREVO STATUS EMAIL FAILED"
                 );
 
+
                 console.error(
                     "Error:",
                     mailError.message
                 );
 
-                console.error(
-                    "Code:",
-                    mailError.code
-                );
-
-                console.error(
-                    "Command:",
-                    mailError.command
-                );
-
-                console.error(
-                    "Response:",
-                    mailError.response
-                );
-
             }
 
         });
+
 
     } catch (error) {
 
@@ -717,9 +746,11 @@ exports.updateApplicantStatus = async (req, res) => {
             error
         );
 
+
         if (res.headersSent) {
             return;
         }
+
 
         return res.status(500).json({
 
