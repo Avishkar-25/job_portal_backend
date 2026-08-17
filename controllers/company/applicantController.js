@@ -413,25 +413,35 @@ exports.updateApplicantStatus = async (req, res) => {
     try {
 
         const user_id = req.user.user_id;
-
         const { application_id } = req.params;
-
         const { status } = req.body;
-
 
         // =====================================================
         // VALIDATION
         // =====================================================
 
-        if (!status) {
+        const allowedStatuses = [
+            "Applied",
+            "Pending",
+            "Shortlisted",
+            "Interview",
+            "Selected",
+            "Rejected"
+        ];
 
+        if (!status) {
             return res.status(400).json({
                 success: false,
                 message: "Status is required"
             });
-
         }
 
+        if (!allowedStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status"
+            });
+        }
 
         // =====================================================
         // GET COMPANY
@@ -447,7 +457,6 @@ exports.updateApplicantStatus = async (req, res) => {
             [user_id]
         );
 
-
         if (company.length === 0) {
 
             return res.status(404).json({
@@ -457,70 +466,16 @@ exports.updateApplicantStatus = async (req, res) => {
 
         }
 
-
         const company_id = company[0].company_id;
 
-
         // =====================================================
-        // CHECK APPLICATION
-        // =====================================================
-
-        const [check] = await db.promise().query(
-            `
-            SELECT application_id
-            FROM applied_jobs
-            WHERE application_id = ?
-            AND company_id = ?
-            LIMIT 1
-            `,
-            [
-                application_id,
-                company_id
-            ]
-        );
-
-
-        if (check.length === 0) {
-
-            return res.status(404).json({
-                success: false,
-                message: "Application not found"
-            });
-
-        }
-
-
-        // =====================================================
-        // UPDATE STATUS
+        // GET APPLICATION + EMAIL DATA
         // =====================================================
 
-        await db.promise().query(
-            `
-            UPDATE applied_jobs
-            SET status = ?
-            WHERE application_id = ?
-            AND company_id = ?
-            `,
-            [
-                status,
-                application_id,
-                company_id
-            ]
-        );
-
-
-        console.log(
-            `Application ${application_id} status updated to ${status}`
-        );
-
-
-        // =====================================================
-        // GET EMAIL DATA
-        // =====================================================
-
-        const [mailData] = await db.promise().query(
+        const [application] = await db.promise().query(
             `
             SELECT
+                aj.application_id,
                 e.full_name,
                 e.email,
                 j.job_title,
@@ -528,13 +483,13 @@ exports.updateApplicantStatus = async (req, res) => {
 
             FROM applied_jobs aj
 
-            JOIN employee e
+            INNER JOIN employee e
                 ON aj.employee_id = e.employee_id
 
-            JOIN jobs j
+            INNER JOIN jobs j
                 ON aj.job_id = j.job_id
 
-            JOIN companies c
+            INNER JOIN companies c
                 ON aj.company_id = c.company_id
 
             WHERE aj.application_id = ?
@@ -548,9 +503,50 @@ exports.updateApplicantStatus = async (req, res) => {
             ]
         );
 
+        if (application.length === 0) {
+
+            return res.status(404).json({
+                success: false,
+                message: "Application not found"
+            });
+
+        }
+
+        const employee = application[0];
 
         // =====================================================
-        // RESPONSE IMMEDIATELY
+        // UPDATE STATUS
+        // =====================================================
+
+        const [updateResult] = await db.promise().query(
+            `
+            UPDATE applied_jobs
+            SET status = ?
+            WHERE application_id = ?
+            AND company_id = ?
+            `,
+            [
+                status,
+                application_id,
+                company_id
+            ]
+        );
+
+        if (updateResult.affectedRows === 0) {
+
+            return res.status(500).json({
+                success: false,
+                message: "Failed to update status"
+            });
+
+        }
+
+        console.log(
+            `✅ Application ${application_id} status updated to ${status}`
+        );
+
+        // =====================================================
+        // SEND RESPONSE IMMEDIATELY
         // =====================================================
 
         res.status(200).json({
@@ -561,72 +557,116 @@ exports.updateApplicantStatus = async (req, res) => {
 
             status,
 
-            emailStatus:
-                mailData.length > 0
-                    ? "Email is being sent"
-                    : "Employee email not found"
+            emailStatus: employee.email
+                ? "Email is being sent"
+                : "Employee email not found"
 
         });
-
 
         // =====================================================
         // SEND EMAIL IN BACKGROUND
         // =====================================================
 
-        if (mailData.length > 0) {
+        if (!employee.email) {
 
-            const employee = mailData[0];
+            console.log(
+                `⚠️ No email found for application ${application_id}`
+            );
 
-
-            transporter.sendMail({
-
-                from:
-                    `"Job Portal" <${process.env.EMAIL_USER}>`,
-
-                to:
-                    employee.email,
-
-                subject:
-                    `Application Status - ${status}`,
-
-                html:
-                    statusMail(
-                        employee.full_name,
-                        employee.company_name,
-                        employee.job_title,
-                        status
-                    )
-
-            })
-
-            .then(() => {
-
-                console.log(
-                    "Status email sent:",
-                    employee.email
-                );
-
-            })
-
-            .catch((mailError) => {
-
-                console.error(
-                    "Status email failed:",
-                    mailError.message
-                );
-
-            });
+            return;
 
         }
 
+        // Let response complete first
+        setImmediate(async () => {
+
+            try {
+
+                console.log(
+                    `📧 Sending status email to: ${employee.email}`
+                );
+
+                console.log(
+                    `📧 SMTP User: ${process.env.EMAIL_USER}`
+                );
+
+                const mailOptions = {
+
+                    from: `"Job Portal" <${process.env.EMAIL_USER}>`,
+
+                    to: employee.email.trim(),
+
+                    subject:
+                        `Application Status - ${status}`,
+
+                    html:
+                        statusMail(
+                            employee.full_name,
+                            employee.company_name,
+                            employee.job_title,
+                            status
+                        )
+
+                };
+
+                const info =
+                    await transporter.sendMail(mailOptions);
+
+                console.log(
+                    "✅ Status email sent successfully"
+                );
+
+                console.log(
+                    "📧 Message ID:",
+                    info.messageId
+                );
+
+                console.log(
+                    "📧 Recipient:",
+                    employee.email
+                );
+
+            } catch (mailError) {
+
+                console.error(
+                    "❌ STATUS EMAIL FAILED"
+                );
+
+                console.error(
+                    "Error:",
+                    mailError.message
+                );
+
+                console.error(
+                    "Code:",
+                    mailError.code
+                );
+
+                console.error(
+                    "Command:",
+                    mailError.command
+                );
+
+                console.error(
+                    "Response:",
+                    mailError.response
+                );
+
+            }
+
+        });
 
     } catch (error) {
 
         console.error(
-            "Update Applicant Status Error:",
+            "❌ Update Applicant Status Error:",
             error
         );
 
+        // जर response आधीच send झाला असेल
+        if (res.headersSent) {
+            return;
+        }
 
         return res.status(500).json({
 
