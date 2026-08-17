@@ -64,7 +64,7 @@ exports.getDashboard = async (req, res) => {
        // Applications
 const [applications] = await db.promise().query(
     `
-    SELECT COUNT(*) AS applications
+    SELECT COUNT(*) AS applied_jobs
     FROM applied_jobs
     WHERE company_id = ?
     `,

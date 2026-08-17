@@ -402,29 +402,23 @@ exports.getEmployeeProfileForCompany = async (req, res) => {
 };
 
 exports.scheduleInterview = async (req, res) => {
-
   try {
 
     const user_id = req.user.user_id;
-
     const { application_id } = req.params;
 
-    const {
-      date,
-      time,
-      location
-    } = req.body;
+    const { date, time, location } = req.body;
 
+    // ==========================================
+    // VALIDATION
+    // ==========================================
 
     if (!date || !time || !location) {
-
       return res.status(400).json({
         success: false,
         message: "Interview date, time and location are required"
       });
-
     }
-
 
     // ==========================================
     // GET COMPANY
@@ -440,25 +434,18 @@ exports.scheduleInterview = async (req, res) => {
       [user_id]
     );
 
-
     if (companyRows.length === 0) {
-
       return res.status(404).json({
         success: false,
         message: "Company not found"
       });
-
     }
 
-
     const company_id = companyRows[0].company_id;
-
-    const company_name =
-      companyRows[0].company_name;
-
+    const company_name = companyRows[0].company_name;
 
     // ==========================================
-    // GET APPLICATION + CANDIDATE
+    // GET APPLICATION
     // ==========================================
 
     const [rows] = await db.promise().query(
@@ -488,40 +475,30 @@ exports.scheduleInterview = async (req, res) => {
 
       LIMIT 1
       `,
-      [
-        application_id,
-        company_id
-      ]
+      [application_id, company_id]
     );
 
-
     if (rows.length === 0) {
-
       return res.status(404).json({
         success: false,
         message: "Application not found"
       });
-
     }
-
 
     const applicant = rows[0];
 
-
     // ==========================================
-    // SAVE INTERVIEW
+    // SAVE INTERVIEW IN DATABASE
     // ==========================================
 
     await db.promise().query(
       `
       UPDATE applied_jobs
-
       SET
         status = 'Interview',
         interview_date = ?,
         interview_time = ?,
         interview_location = ?
-
       WHERE application_id = ?
       AND company_id = ?
       `,
@@ -534,96 +511,122 @@ exports.scheduleInterview = async (req, res) => {
       ]
     );
 
+    console.log("Interview saved successfully");
 
     // ==========================================
     // SEND EMAIL
+    // IMPORTANT:
+    // EMAIL ERROR SHOULD NOT FAIL API
     // ==========================================
 
-    const mailOptions = {
+    let emailSent = false;
 
-      from: process.env.MAIL_USER,
+    try {
 
-      to: applicant.candidate_email,
+      const mailOptions = {
+        from: process.env.MAIL_USER,
+        to: applicant.candidate_email,
 
-      subject: `Interview Scheduled - ${applicant.job_title}`,
+        subject: `Interview Scheduled - ${applicant.job_title}`,
 
-      html: `
-        <div style="
-          font-family: Arial, sans-serif;
-          max-width: 600px;
-          margin: auto;
-          padding: 25px;
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
-        ">
-
-          <h2 style="color:#2563eb;">
-            Interview Scheduled
-          </h2>
-
-          <p>
-            Dear ${applicant.candidate_name},
-          </p>
-
-          <p>
-            Your application for
-            <strong>${applicant.job_title}</strong>
-            has been shortlisted for an interview.
-          </p>
-
+        html: `
           <div style="
-            background:#eff6ff;
-            padding:20px;
-            border-radius:10px;
-            margin:20px 0;
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: auto;
+            padding: 25px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
           ">
 
+            <h2 style="color:#2563eb;">
+              Interview Scheduled
+            </h2>
+
             <p>
-              <strong>Company:</strong>
-              ${company_name}
+              Dear ${applicant.candidate_name},
             </p>
 
             <p>
-              <strong>Date:</strong>
-              ${date}
+              Your application for
+              <strong>${applicant.job_title}</strong>
+              has been shortlisted for an interview.
+            </p>
+
+            <div style="
+              background:#eff6ff;
+              padding:20px;
+              border-radius:10px;
+              margin:20px 0;
+            ">
+
+              <p>
+                <strong>Company:</strong>
+                ${company_name}
+              </p>
+
+              <p>
+                <strong>Date:</strong>
+                ${date}
+              </p>
+
+              <p>
+                <strong>Time:</strong>
+                ${time}
+              </p>
+
+              <p>
+                <strong>Location:</strong>
+                ${location}
+              </p>
+
+            </div>
+
+            <p>
+              Please make sure to be available at the scheduled time.
             </p>
 
             <p>
-              <strong>Time:</strong>
-              ${time}
-            </p>
-
-            <p>
-              <strong>Location:</strong>
-              ${location}
+              Regards,<br/>
+              <strong>${company_name}</strong>
             </p>
 
           </div>
+        `
+      };
 
-          <p>
-            Please make sure to be available at the
-            scheduled time.
-          </p>
+      await transporter.sendMail(mailOptions);
 
-          <p>
-            Regards,<br/>
-            <strong>${company_name}</strong>
-          </p>
+      emailSent = true;
 
-        </div>
-      `
-    };
+      console.log(
+        "Interview email sent to:",
+        applicant.candidate_email
+      );
 
+    } catch (mailError) {
 
-    await transporter.sendMail(mailOptions);
+      console.error(
+        "Interview email failed:",
+        mailError.message
+      );
 
+      emailSent = false;
+    }
+
+    // ==========================================
+    // SUCCESS RESPONSE
+    // ==========================================
 
     return res.status(200).json({
 
       success: true,
 
-      message:
-        "Interview scheduled and email sent successfully",
+      message: emailSent
+        ? "Interview scheduled and email sent successfully"
+        : "Interview scheduled successfully, but email could not be sent",
+
+      emailSent,
 
       interview: {
         date,
@@ -632,7 +635,6 @@ exports.scheduleInterview = async (req, res) => {
       }
 
     });
-
 
   } catch (error) {
 
@@ -645,15 +647,12 @@ exports.scheduleInterview = async (req, res) => {
 
       success: false,
 
-      message:
-        "Failed to schedule interview",
+      message: "Failed to schedule interview",
 
       error: error.message
 
     });
-
   }
-
 };
 
 
