@@ -1,11 +1,12 @@
 const express = require("express");
 
 const router = express.Router();
-
+const cloudinary = require("../../config/cloudinary");
+const streamifier = require("streamifier");
 
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
+
 
 const employeeProfileController =
   require("../../controllers/employee/employeeProfileController");

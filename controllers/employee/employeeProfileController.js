@@ -1,7 +1,43 @@
 const db = require("../../config/db");
-const fs = require("fs");
-const path = require("path");
 const multer = require("multer");
+const path = require("path");
+
+const cloudinary = require("../../config/cloudinary");
+const streamifier = require("streamifier");
+// =======================================
+// Resume Upload Configuration - Cloudinary
+// =======================================
+
+const uploadResume = multer({
+
+  storage: multer.memoryStorage(),
+
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  },
+
+  fileFilter: (req, file, cb) => {
+
+    const ext = path
+      .extname(file.originalname)
+      .toLowerCase();
+
+    if (
+      ext !== ".pdf" ||
+      file.mimetype !== "application/pdf"
+    ) {
+
+      return cb(
+        new Error("Only PDF files are allowed")
+      );
+
+    }
+
+    cb(null, true);
+
+  }
+
+});
 
 // =======================================
 // Resume Upload Configuration
@@ -661,119 +697,161 @@ exports.updateEmployeeProfile = async (req, res) => {
 // UPLOAD PROFILE PHOTO
 // ======================================
 
+// ======================================
+// UPLOAD PROFILE PHOTO - CLOUDINARY
+// ======================================
+
 exports.uploadProfilePhoto = async (req, res) => {
-
   try {
-
     const { user_id } = req.params;
 
+    // ======================================
+    // Check file
+    // ======================================
 
     if (!req.file) {
-
       return res.status(400).json({
-
         success: false,
-        message: "Please select image"
-
+        message: "Please select an image",
       });
-
     }
 
-
-    // Old image delete
+    // ======================================
+    // Get old profile photo
+    // ======================================
 
     const [oldData] = await db.promise().query(
-
       `
-SELECT profile_photo
-FROM employee
-WHERE user_id=?
-`,
+      SELECT profile_photo
+      FROM employee
+      WHERE user_id = ?
+      `,
       [user_id]
-
     );
 
+    // ======================================
+    // Check employee
+    // ======================================
 
-
-    if (oldData.length > 0 && oldData[0].profile_photo) {
-
-
-      const oldImagePath = path.join(
-
-        __dirname,
-        "../uploads/profiles",
-        oldData[0].profile_photo
-
-      );
-
-
-      if (fs.existsSync(oldImagePath)) {
-
-        fs.unlinkSync(oldImagePath);
-
-      }
-
+    if (oldData.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
     }
 
+    // ======================================
+    // Delete old Cloudinary image
+    // ======================================
 
+    if (oldData[0].profile_photo) {
+      try {
+        const cloudinary = require("../../config/cloudinary");
 
-    // New image
+        const oldUrl = oldData[0].profile_photo;
 
-    const imageName = req.file.filename;
+        // Extract public_id from Cloudinary URL
+        const uploadIndex = oldUrl.indexOf("/upload/");
 
+        if (uploadIndex !== -1) {
+          let publicId = oldUrl.substring(
+            uploadIndex + 8
+          );
 
+          // Remove version e.g. v123456789/
+          publicId = publicId.replace(
+            /^v\d+\//,
+            ""
+          );
 
-    await db.promise().query(
+          // Remove extension
+          publicId = publicId.replace(
+            /\.[^/.]+$/,
+            ""
+          );
 
+          await cloudinary.uploader.destroy(
+            publicId
+          );
+
+          console.log(
+            "Old Cloudinary image deleted:",
+            publicId
+          );
+        }
+      } catch (deleteError) {
+        console.log(
+          "Old Cloudinary image delete error:",
+          deleteError.message
+        );
+      }
+    }
+
+    // ======================================
+    // New Cloudinary Image
+    // ======================================
+
+    const imageUrl = req.file.path;
+
+    // Cloudinary public ID
+    const publicId = req.file.filename;
+
+    // ======================================
+    // Update Database
+    // ======================================
+
+    const [result] = await db.promise().query(
       `
-UPDATE employee
-
-SET profile_photo=?,
-updated_at=NOW()
-
-WHERE user_id=?
-
-`,
-
+      UPDATE employee
+      SET
+        profile_photo = ?,
+        updated_at = NOW()
+      WHERE user_id = ?
+      `,
       [
-        imageName,
-        user_id
+        imageUrl,
+        user_id,
       ]
-
     );
 
+    // ======================================
+    // Database update failed
+    // ======================================
 
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
 
-    res.json({
+    // ======================================
+    // Success
+    // ======================================
 
+    return res.json({
       success: true,
 
-      message: "Profile photo uploaded successfully",
+      message:
+        "Profile photo uploaded successfully",
 
-      profile_photo:
-        "uploads/profiles/" + imageName
+      profile_photo: imageUrl,
 
+      public_id: publicId,
     });
 
+  } catch (error) {
+    console.log(
+      "Upload Profile Photo Error:",
+      error
+    );
 
-  }
-
-
-  catch (error) {
-
-    console.log(error);
-
-
-    res.status(500).json({
-
+    return res.status(500).json({
       success: false,
-      message: "Upload failed"
-
+      message: "Upload failed",
+      error: error.message,
     });
-
-
   }
-
 };
 
 
@@ -1767,335 +1845,401 @@ exports.updateProfessionalSummary = async (req, res) => {
 // Upload / Update Resume
 // =======================================
 
-exports.uploadEmployeeResume = [
-
-  uploadResume.single("resume"),
-
-  async (req, res) => {
-
-    try {
-
-      const { user_id } = req.params;
-
-      if (!user_id) {
-
-        return res.status(400).json({
-          success: false,
-          message: "User ID is required"
-        });
-
-      }
-
-
-      if (!req.file) {
-
-        return res.status(400).json({
-          success: false,
-          message: "Please upload a PDF resume"
-        });
-
-      }
-
-
-      // Find employee
-
-      const [employee] =
-        await db.promise().query(
-          `
-          SELECT employee_id, resume
-          FROM employee
-          WHERE user_id = ?
-          `,
-          [user_id]
-        );
-
-
-      if (employee.length === 0) {
-
-        return res.status(404).json({
-          success: false,
-          message: "Employee not found"
-        });
-
-      }
-
-
-      // Delete old resume
-
-      if (employee[0].resume) {
-
-        const oldPath =
-          path.join(
-            resumeDir,
-            path.basename(
-              employee[0].resume
-            )
-          );
-
-        if (fs.existsSync(oldPath)) {
-
-          fs.unlinkSync(oldPath);
-
-        }
-
-      }
-
-
-      // New file path
-
-      const resumePath =
-        `/uploads/resumes/${req.file.filename}`;
-
-
-      // Update DB
-
-      await db.promise().query(
-        `
-        UPDATE employee
-        SET resume = ?
-        WHERE user_id = ?
-        `,
-        [
-          resumePath,
-          user_id
-        ]
-      );
-
-
-      res.json({
-
-        success: true,
-
-        message:
-          "Resume uploaded successfully",
-
-        resume: {
-
-          original_name:
-            req.file.originalname,
-
-          filename:
-            req.file.filename,
-
-          url:
-            `http://localhost:5000${resumePath}`
-
-        }
-
-      });
-
-    } catch (err) {
-
-      console.log(
-        "Upload Resume Error:",
-        err
-      );
-
-      res.status(500).json({
-
-        success: false,
-
-        message:
-          "Failed to upload resume"
-
-      });
-
-    }
-
-  }
-
-];
 // =======================================
-// Get Resume
+// Upload / Update Resume - Cloudinary
 // =======================================
 
-exports.getEmployeeResume = async (
-  req,
-  res
-) => {
-
+exports.uploadEmployeeResume = async (req, res) => {
   try {
-
     const { user_id } = req.params;
 
+    // =======================================
+    // Check User ID
+    // =======================================
 
-    const [employee] =
-      await db.promise().query(
-        `
-        SELECT resume
-        FROM employee
-        WHERE user_id = ?
-        `,
-        [user_id]
-      );
-
-
-    if (employee.length === 0) {
-
-      return res.status(404).json({
-
+    if (!user_id) {
+      return res.status(400).json({
         success: false,
-
-        message:
-          "Employee not found"
-
+        message: "User ID is required",
       });
-
     }
 
+    // =======================================
+    // Check File
+    // =======================================
 
-    if (!employee[0].resume) {
-
-      return res.json({
-
-        success: true,
-
-        resume: null
-
-      });
-
-    }
-
-
-    const filename =
-      path.basename(
-        employee[0].resume
-      );
-
-
-    res.json({
-
-      success: true,
-
-      resume: {
-
-        original_name: filename,
-
-        filename,
-
-        uploaded_at: null,
-
-        url:
-          `http://localhost:5000${employee[0].resume}`
-
-      }
-
-    });
-
-  } catch (err) {
-
-    console.log(
-      "Get Resume Error:",
-      err
-    );
-
-    res.status(500).json({
-
-      success: false,
-
-      message:
-        "Failed to get resume"
-
-    });
-
-  }
-
-};
-// =======================================
-// Delete Resume
-// =======================================
-
-exports.deleteEmployeeResume = async (
-  req,
-  res
-) => {
-
-  try {
-
-    const { user_id } = req.params;
-
-
-    const [employee] =
-      await db.promise().query(
-        `
-        SELECT resume
-        FROM employee
-        WHERE user_id = ?
-        `,
-        [user_id]
-      );
-
-
-    if (employee.length === 0) {
-
-      return res.status(404).json({
-
+    if (!req.file) {
+      return res.status(400).json({
         success: false,
-
-        message:
-          "Employee not found"
-
+        message: "Please upload a PDF resume",
       });
-
     }
 
+    // =======================================
+    // Find Employee
+    // =======================================
 
-    if (employee[0].resume) {
-
-      const filePath =
-        path.join(
-          __dirname,
-          "..",
-          employee[0].resume
-        );
-
-
-      if (fs.existsSync(filePath)) {
-
-        fs.unlinkSync(filePath);
-
-      }
-
-    }
-
-
-    await db.promise().query(
+    const [employee] = await db.promise().query(
       `
-      UPDATE employee
-      SET resume = NULL
+      SELECT
+        employee_id,
+        resume
+      FROM employee
       WHERE user_id = ?
       `,
       [user_id]
     );
 
+    if (employee.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
 
-    res.json({
+    // =======================================
+    // Delete Old Resume From Cloudinary
+    // =======================================
 
+    if (employee[0].resume) {
+      try {
+        const cloudinary = require("../../config/cloudinary");
+
+        const oldUrl = employee[0].resume;
+
+        // Find /upload/ in URL
+        const uploadIndex = oldUrl.indexOf("/upload/");
+
+        if (uploadIndex !== -1) {
+          let publicId = oldUrl.substring(
+            uploadIndex + 8
+          );
+
+          // Remove version
+          publicId = publicId.replace(
+            /^v\d+\//,
+            ""
+          );
+
+          // Remove extension
+          publicId = publicId.replace(
+            /\.[^/.]+$/,
+            ""
+          );
+
+          await cloudinary.uploader.destroy(
+            publicId,
+            {
+              resource_type: "raw",
+            }
+          );
+
+          console.log(
+            "Old resume deleted from Cloudinary:",
+            publicId
+          );
+        }
+      } catch (deleteError) {
+        console.log(
+          "Old resume delete error:",
+          deleteError.message
+        );
+      }
+    }
+
+    // =======================================
+    // New Cloudinary Resume
+    // =======================================
+
+    const resumeUrl = req.file.path;
+
+    const publicId = req.file.filename;
+
+    // =======================================
+    // Update Database
+    // =======================================
+
+    const [result] = await db.promise().query(
+      `
+      UPDATE employee
+      SET
+        resume = ?,
+        updated_at = NOW()
+      WHERE user_id = ?
+      `,
+      [
+        resumeUrl,
+        user_id,
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    // =======================================
+    // Success
+    // =======================================
+
+    return res.json({
       success: true,
 
       message:
-        "Resume deleted successfully"
+        "Resume uploaded successfully",
 
+      resume: {
+        original_name:
+          req.file.originalname,
+
+        filename:
+          req.file.filename,
+
+        url:
+          resumeUrl,
+
+        public_id:
+          publicId,
+      },
     });
 
   } catch (err) {
+    console.log(
+      "Upload Resume Error:",
+      err
+    );
 
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload resume",
+      error: err.message,
+    });
+  }
+};
+// =======================================
+// Get Resume
+// =======================================
+
+// =======================================
+// Get Resume
+// =======================================
+
+exports.getEmployeeResume = async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    // =======================================
+    // Find Employee
+    // =======================================
+
+    const [employee] = await db.promise().query(
+      `
+      SELECT
+        employee_id,
+        resume
+      FROM employee
+      WHERE user_id = ?
+      `,
+      [user_id]
+    );
+
+    if (employee.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    // =======================================
+    // Resume Not Found
+    // =======================================
+
+    if (!employee[0].resume) {
+      return res.json({
+        success: true,
+        resume: null,
+      });
+    }
+
+    // =======================================
+    // Cloudinary Resume URL
+    // =======================================
+
+    const resumeUrl = employee[0].resume;
+
+    const filename =
+      resumeUrl.split("/").pop() || "resume.pdf";
+
+    // =======================================
+    // Response
+    // =======================================
+
+    return res.json({
+      success: true,
+
+      resume: {
+        original_name: filename,
+
+        filename: filename,
+
+        uploaded_at: null,
+
+        url: resumeUrl,
+      },
+    });
+
+  } catch (err) {
+    console.log(
+      "Get Resume Error:",
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get resume",
+      error: err.message,
+    });
+  }
+};
+// =======================================
+// Delete Resume
+// =======================================
+
+// =======================================
+// Delete Resume - Cloudinary
+// =======================================
+
+exports.deleteEmployeeResume = async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    // =======================================
+    // Find Employee
+    // =======================================
+
+    const [employee] = await db.promise().query(
+      `
+      SELECT
+        employee_id,
+        resume
+      FROM employee
+      WHERE user_id = ?
+      `,
+      [user_id]
+    );
+
+    if (employee.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    // =======================================
+    // No Resume
+    // =======================================
+
+    if (!employee[0].resume) {
+      return res.json({
+        success: true,
+        message: "No resume to delete",
+      });
+    }
+
+    // =======================================
+    // Delete From Cloudinary
+    // =======================================
+
+    try {
+      const cloudinary =
+        require("../../config/cloudinary");
+
+      const resumeUrl =
+        employee[0].resume;
+
+      const uploadIndex =
+        resumeUrl.indexOf("/upload/");
+
+      if (uploadIndex !== -1) {
+        let publicId =
+          resumeUrl.substring(
+            uploadIndex + 8
+          );
+
+        // Remove version
+        publicId =
+          publicId.replace(
+            /^v\d+\//,
+            ""
+          );
+
+        // Remove extension
+        publicId =
+          publicId.replace(
+            /\.[^/.]+$/,
+            ""
+          );
+
+        await cloudinary.uploader.destroy(
+          publicId,
+          {
+            resource_type: "raw",
+          }
+        );
+
+        console.log(
+          "Resume deleted from Cloudinary:",
+          publicId
+        );
+      }
+
+    } catch (cloudinaryError) {
+      console.log(
+        "Cloudinary Delete Error:",
+        cloudinaryError.message
+      );
+    }
+
+    // =======================================
+    // Remove Resume From Database
+    // =======================================
+
+    await db.promise().query(
+      `
+      UPDATE employee
+      SET
+        resume = NULL,
+        updated_at = NOW()
+      WHERE user_id = ?
+      `,
+      [user_id]
+    );
+
+    // =======================================
+    // Success
+    // =======================================
+
+    return res.json({
+      success: true,
+      message:
+        "Resume deleted successfully",
+    });
+
+  } catch (err) {
     console.log(
       "Delete Resume Error:",
       err
     );
 
-    res.status(500).json({
-
+    return res.status(500).json({
       success: false,
-
       message:
-        "Failed to delete resume"
-
+        "Failed to delete resume",
+      error: err.message,
     });
-
   }
-
 };
 // =======================================
 // Get Social Profiles
