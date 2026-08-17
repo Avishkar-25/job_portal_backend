@@ -10,21 +10,21 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS
     },
 
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 20000
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 30000,
+
+    tls: {
+        rejectUnauthorized: false
+    }
 });
 
 transporter.verify((error, success) => {
 
     if (error) {
-
-        console.error("SMTP ERROR:", error);
-
+        console.error("❌ SMTP ERROR:", error.message);
     } else {
-
-        console.log("SMTP SERVER READY");
-
+        console.log("✅ SMTP SERVER READY");
     }
 
 });
