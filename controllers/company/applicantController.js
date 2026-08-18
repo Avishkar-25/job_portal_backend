@@ -1,5 +1,5 @@
 const db = require("../../config/db");
-const transporter = require("../../config/mailer");
+const transporter = require("../../config/mail");
 const { statusMail } = require("../../templates/statusMail");
 // ==========================================
 // GET COMPANY APPLICANTS
