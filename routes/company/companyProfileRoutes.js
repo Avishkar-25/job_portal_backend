@@ -4,7 +4,7 @@ const router = express.Router();
 const {
     uploadCompanyLogo,
     uploadCompanyCover
-} = require("../../middleware/upload");
+} = require("../../middleware/companyUpload");
 
 const auth = require("../../middleware/authMiddleware");
 
@@ -20,44 +20,28 @@ const {
     uploadCover
 } = require("../../controllers/company/companyProfileController");
 
-
-// =====================================================
-// GET COMPANY PROFILE
-// =====================================================
-
+// GET PROFILE
 router.get(
     "/profile",
     auth,
     getCompanyProfile
 );
 
-
-// =====================================================
-// COMPANY INFORMATION
-// =====================================================
-
+// INFORMATION
 router.put(
     "/profile/information",
     auth,
     updateCompanyInformation
 );
 
-
-// =====================================================
 // ADDRESS
-// =====================================================
-
 router.put(
     "/profile/address",
     auth,
     updateCompanyAddress
 );
 
-
-// =====================================================
-// LEGAL DETAILS
-// =====================================================
-
+// LEGAL
 router.put(
     "/profile/legal",
     auth,
@@ -70,11 +54,7 @@ router.delete(
     deleteCompanyLegal
 );
 
-
-// =====================================================
-// SOCIAL MEDIA
-// =====================================================
-
+// SOCIAL
 router.put(
     "/profile/social",
     auth,
@@ -87,11 +67,7 @@ router.delete(
     deleteCompanySocial
 );
 
-
-// =====================================================
 // LOGO
-// =====================================================
-
 router.post(
     "/profile/logo",
     auth,
@@ -99,17 +75,12 @@ router.post(
     uploadLogo
 );
 
-
-// =====================================================
 // COVER
-// =====================================================
-
 router.post(
     "/profile/cover",
     auth,
     uploadCompanyCover.single("cover_image"),
     uploadCover
 );
-
 
 module.exports = router;

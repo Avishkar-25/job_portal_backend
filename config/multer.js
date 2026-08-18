@@ -1,55 +1,12 @@
 const multer = require("multer");
-const { CloudinaryStorage } = require("multer-storage-cloudinary");
-
-const cloudinary = require("../config/cloudinary");
-
+const path = require("path");
 
 // =====================================================
-// COMPANY LOGO STORAGE
+// MEMORY STORAGE
+// Files will be uploaded to Cloudinary from controller
 // =====================================================
 
-const logoStorage = new CloudinaryStorage({
-
-    cloudinary: cloudinary,
-
-    params: {
-        folder: "job-portal/company/logos",
-
-        allowed_formats: [
-            "jpg",
-            "jpeg",
-            "png",
-            "webp"
-        ],
-
-        resource_type: "image"
-    }
-
-});
-
-
-// =====================================================
-// COMPANY COVER STORAGE
-// =====================================================
-
-const coverStorage = new CloudinaryStorage({
-
-    cloudinary: cloudinary,
-
-    params: {
-        folder: "job-portal/company/covers",
-
-        allowed_formats: [
-            "jpg",
-            "jpeg",
-            "png",
-            "webp"
-        ],
-
-        resource_type: "image"
-    }
-
-});
+const storage = multer.memoryStorage();
 
 
 // =====================================================
@@ -58,36 +15,96 @@ const coverStorage = new CloudinaryStorage({
 
 const fileFilter = (req, file, cb) => {
 
-    const allowedMimeTypes = [
-        "image/jpeg",
-        "image/jpg",
-        "image/png",
-        "image/webp"
-    ];
+    // ==========================================
+    // PROFILE PHOTO
+    // ==========================================
 
-    if (!allowedMimeTypes.includes(file.mimetype)) {
+    if (file.fieldname === "profile_photo") {
+
+        const ext = path
+            .extname(file.originalname)
+            .toLowerCase();
+
+        const allowedExtensions = [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp"
+        ];
+
+        const allowedMimeTypes = [
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/webp"
+        ];
+
+        if (
+            allowedExtensions.includes(ext) &&
+            allowedMimeTypes.includes(file.mimetype)
+        ) {
+
+            return cb(null, true);
+
+        }
 
         return cb(
             new Error(
                 "Only JPG, JPEG, PNG and WEBP images are allowed."
             )
         );
-
     }
 
-    cb(null, true);
+
+    // ==========================================
+    // RESUME
+    // ==========================================
+
+    if (file.fieldname === "resume") {
+
+        const ext = path
+            .extname(file.originalname)
+            .toLowerCase();
+
+        if (
+            ext === ".pdf" &&
+            file.mimetype === "application/pdf"
+        ) {
+
+            return cb(null, true);
+
+        }
+
+        return cb(
+            new Error(
+                "Only PDF resume is allowed."
+            )
+        );
+    }
+
+
+    // ==========================================
+    // INVALID FIELD
+    // ==========================================
+
+    return cb(
+        new Error(
+            "Invalid upload field."
+        )
+    );
+
 };
 
 
 // =====================================================
-// LOGO UPLOAD
+// MULTER
 // =====================================================
 
-const uploadCompanyLogo = multer({
+const upload = multer({
 
-    storage: logoStorage,
+    storage,
 
-    fileFilter: fileFilter,
+    fileFilter,
 
     limits: {
         fileSize: 5 * 1024 * 1024
@@ -96,24 +113,4 @@ const uploadCompanyLogo = multer({
 });
 
 
-// =====================================================
-// COVER UPLOAD
-// =====================================================
-
-const uploadCompanyCover = multer({
-
-    storage: coverStorage,
-
-    fileFilter: fileFilter,
-
-    limits: {
-        fileSize: 5 * 1024 * 1024
-    }
-
-});
-
-
-module.exports = {
-    uploadCompanyLogo,
-    uploadCompanyCover
-};
+module.exports = upload;
